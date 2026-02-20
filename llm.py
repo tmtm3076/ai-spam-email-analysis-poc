@@ -5,7 +5,7 @@ import os
 import re
 from typing import Optional
 
-from .models import EmailRecord, LLMResult
+from models import EmailRecord, LLMResult
 
 
 _CODE_FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL | re.IGNORECASE)
