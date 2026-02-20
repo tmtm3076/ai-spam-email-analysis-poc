@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>메일 보안 분석기</title>
+    <style>
+        body {
+            font-family: Arial;
+            background: #f4f6f8;
+            text-align: center;
+            padding: 40px;
+        }
+
+        .drop-area {
+            border: 3px dashed #3b82f6;
+            padding: 40px;
+            border-radius: 12px;
+            background: white;
+            cursor: pointer;
+        }
+
+        .result {
+            margin-top: 30px;
+            text-align: left;
+            display: inline-block;
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            width: 600px;
+        }
+
+        button {
+            padding: 10px 20px;
+            margin-top: 15px;
+        }
+    </style>
+</head>
+<body>
+
+<h1>📧 메일 보안 분석기</h1>
+
+<div class="drop-area" onclick="document.getElementById('fileInput').click()">
+    <p>📂 .eml 파일을 드래그하거나 클릭해서 업로드하세요</p>
+    <input type="file" id="fileInput" style="display:none" accept=".eml">
+</div>
+
+<div id="result"></div>
+
+<script>
+const fileInput = document.getElementById("fileInput");
+const resultDiv = document.getElementById("result");
+
+fileInput.addEventListener("change", async function() {
+    const file = fileInput.files[0];
+    const formData = new FormData();
+    formData.append("file", file);
+
+    resultDiv.innerHTML = "🔍 분석 중입니다...";
+
+    const response = await fetch("/analyze", {
+        method: "POST",
+        body: formData
+    });
+
+    const data = await response.json();
+
+    resultDiv.innerHTML = `
+        <div class="result">
+            <h2>분석 결과</h2>
+            <pre>${JSON.stringify(data, null, 2)}</pre>
+        </div>
+    `;
+});
+</script>
+
+</body>
+</html>

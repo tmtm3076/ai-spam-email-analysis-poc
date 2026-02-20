@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spam-email-analysis-poc"
+version = "0.1.0"
+description = "AI-based spam email analysis automation proof-of-concept."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "pydantic>=2.0.0",
+  "python-dotenv>=1.0.0",
+  "requests>=2.31.0",
+  "rich>=13.0.0",
+]
+
+[project.optional-dependencies]
+llm = [
+  "google-generativeai",
+]
+
+[project.scripts]
+spam-email-analyze = "spam_email_poc.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

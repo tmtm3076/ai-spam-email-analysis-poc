@@ -1,0 +1,22 @@
+# 핵심 웹 프레임워크
+fastapi
+uvicorn[standard]
+httptools
+uvloop
+
+# AI 및 API 관련
+google-genai==1.61.0
+python-dotenv==1.2.1
+requests==2.32.5
+
+# 데이터 처리 (필요한 경우만 남기세요)
+pandas==2.3.3
+numpy==2.4.2
+openpyxl==3.1.5
+python-pptx==1.0.2
+
+# 유틸리티
+Pygments==2.19.2
+PyYAML==6.0.3
+schedule==1.2.2
+
