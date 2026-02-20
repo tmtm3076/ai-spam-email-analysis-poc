@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from urllib.parse import urlparse
 
-from .models import EmailRecord, HeuristicResult
+from models import EmailRecord, HeuristicResult
 
 # 고위험 키워드 (각 20점)
 _HIGH_RISK_KEYWORDS = [
