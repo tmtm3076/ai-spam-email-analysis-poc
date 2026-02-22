@@ -3,6 +3,7 @@ fastapi
 uvicorn[standard]
 httptools
 uvloop
+python-multipart
 
 # AI 및 API 관련
 google-genai==1.61.0
