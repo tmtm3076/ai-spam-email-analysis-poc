@@ -1,6 +1,6 @@
 from url_extractor import extract_urls
 from virustotal_api import submit_url, get_result, extract_stats
-from heuristics import analyze_mail_heuristic
+from heuristics import score_email
 from llm import analyze_mail_llm
 
 
@@ -24,7 +24,7 @@ def analyze_mail(email_text: str) -> dict:
     # 1️⃣ 휴리스틱 분석
     # ==========================================================
     try:
-        result["heuristic"] = analyze_mail_heuristic(email_text)
+        result["heuristic"] = score_email(email_text)
     except Exception as e:
         result["heuristic"] = {"error": str(e)}
 
