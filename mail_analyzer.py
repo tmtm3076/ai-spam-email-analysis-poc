@@ -2,6 +2,7 @@ from url_extractor import extract_urls
 from virustotal_api import submit_url, get_result, extract_stats
 from heuristics import score_email
 from llm import analyze_mail_llm
+from models import EmailRecord
 
 
 def analyze_mail(email_text: str) -> dict:
@@ -24,7 +25,22 @@ def analyze_mail(email_text: str) -> dict:
     # 1️⃣ 휴리스틱 분석
     # ==========================================================
     try:
-        result["heuristic"] = score_email(email_text)
+        # EmailRecord 객체 생성
+        email_record = EmailRecord(
+            subject="",
+            body_text=email_text,
+            from_addr=""
+        )
+
+        heuristic_result = score_email(email_record)
+
+        # HeuristicResult 객체를 dict로 변환
+        result["heuristic"] = {
+            "score": heuristic_result.score,
+            "flags": heuristic_result.flags,
+            "details": heuristic_result.details
+        }
+
     except Exception as e:
         result["heuristic"] = {"error": str(e)}
 
