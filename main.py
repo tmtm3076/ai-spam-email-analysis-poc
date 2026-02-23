@@ -91,14 +91,21 @@ def home():
         <script>
             const dropArea = document.getElementById('drop-area');
             const fileElem = document.getElementById('fileElem');
+            const fileInfo = document.getElementById('file-info');
+            const fileName = document.getElementById('file-name');
+
             let selectedFile = null;
 
+            // 클릭으로 파일 선택
             dropArea.addEventListener('click', () => fileElem.click());
 
+            // 파일 선택 시 표시
             fileElem.addEventListener('change', (e) => {
                 selectedFile = e.target.files[0];
+                showFileInfo();
             });
 
+            // 드래그 오버 효과
             dropArea.addEventListener('dragover', (e) => {
                 e.preventDefault();
                 dropArea.classList.add('dragover');
@@ -108,11 +115,20 @@ def home():
                 dropArea.classList.remove('dragover');
             });
 
+            // 드롭 시 파일 표시
             dropArea.addEventListener('drop', (e) => {
                 e.preventDefault();
                 dropArea.classList.remove('dragover');
                 selectedFile = e.dataTransfer.files[0];
+                showFileInfo();
             });
+
+            function showFileInfo() {
+                if (!selectedFile) return;
+
+                fileName.textContent = selectedFile.name;
+                fileInfo.style.display = "block";
+            }
 
             async function uploadFile() {
                 if (!selectedFile) {
