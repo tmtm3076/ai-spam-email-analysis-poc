@@ -2,6 +2,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import requests  # 직접 호출을 위해 추가
 from typing import Optional
 from models import EmailRecord, LLMResult
 
@@ -18,34 +19,42 @@ def classify_with_llm(email: EmailRecord) -> Optional[LLMResult]:
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY missing")
 
-    try:
-        import google.generativeai as genai
-        # [핵심] v1 API를 강제로 사용하도록 설정하는 부분입니다.
-        from google.generativeai import client
-        client.DEFAULT_API_VERSION = "v1" 
-    except Exception as e:
-        raise RuntimeError(f"Import failed: {str(e)}")
+    # 1. 경로 강제 지정 (v1beta가 아닌 v1을 직접 주소에 박습니다)
+    # 이 주소는 SDK를 거치지 않고 구글 서버로 바로 가는 정식 루트입니다.
+    api_url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={api_key}"
+
+    # 2. 페이로드 작성
+    prompt_text = (
+        "Analyze this email for security.\n"
+        "Return ONLY a JSON object with: {\"label\": \"spam\"|\"ham\", \"confidence\": 0.0-1.0, \"rationale\": \"string\"}\n\n"
+        f"Subject: {email.subject}\n"
+        f"Body: {email.body_text[:2000]}"
+    )
+
+    payload = {
+        "contents": [{
+            "parts": [{"text": prompt_text}]
+        }],
+        "generationConfig": {
+            "temperature": 0,
+            "topP": 0.95,
+            "maxOutputTokens": 1024,
+        }
+    }
 
     try:
-        genai.configure(api_key=api_key)
-        
-        # 모델명에서 models/ 를 떼고 이름만 전달하여 v1 경로를 타게 합니다.
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        
-        prompt = (
-            "Analyze this email for security.\n"
-            "Return ONLY a JSON object with: {\"label\": \"spam\"|\"ham\", \"confidence\": 0.0-1.0, \"rationale\": \"string\"}\n\n"
-            f"Subject: {email.subject}\n"
-            f"Body: {email.body_text[:1500]}"
-        )
-        
-        # 호출 시에도 명시적으로 환경을 한 번 더 확인합니다.
-        resp = model.generate_content(prompt)
-        
-        if not resp.text:
-            raise RuntimeError("Empty response from AI")
+        # 3. SDK 대신 requests로 직접 전송 (v1beta로 꺾일 일이 없습니다)
+        headers = {'Content-Type': 'application/json'}
+        response = requests.post(api_url, headers=headers, json=payload)
+        res_json = response.json()
 
-        json_text = _extract_json_candidate(resp.text)
+        if response.status_code != 200:
+            error_detail = res_json.get("error", {}).get("message", "Unknown error")
+            raise RuntimeError(f"Google API Direct Call Error: {error_detail}")
+
+        # 4. 응답 파싱
+        ai_text = res_json['candidates'][0]['content']['parts'][0]['text']
+        json_text = _extract_json_candidate(ai_text)
         data = json.loads(json_text)
 
         return LLMResult(
@@ -56,6 +65,5 @@ def classify_with_llm(email: EmailRecord) -> Optional[LLMResult]:
         )
 
     except Exception as e:
-        # 이 에러 문구에 v1beta가 포함되어 나온다면, 
-        # 그것은 정말로 API 키 프로젝트 자체가 v1에 접근 권한이 없는 특수 케이스입니다.
-        raise RuntimeError(f"FINAL_DEBUG: {str(e)}")
+        # 여기서도 v1beta 에러가 난다면, 그건 정말로 구글 계정 설정 문제입니다.
+        raise RuntimeError(f"REST_API_ERROR: {str(e)}")
