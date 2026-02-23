@@ -7,12 +7,10 @@ from typing import Optional
 
 from models import EmailRecord, LLMResult
 
-
 _CODE_FENCE_RE = re.compile(
     r"```(?:json)?\s*(.*?)\s*```",
     re.DOTALL | re.IGNORECASE
 )
-
 
 def _extract_json_candidate(text: str) -> str:
     t = (text or "").strip()
@@ -36,27 +34,41 @@ def classify_with_llm(email: EmailRecord) -> Optional[LLMResult]:
     LLM 기반 스팸 분류
 
     Required:
-        GEMINI_API_KEY
+        GEMINI_API_KEY (환경 변수)
 
     Optional:
-        GEMINI_MODEL (default: models/gemini-1.5-flash)
+        GEMINI_MODEL (default: models/gemini-1.5-flash-latest)
     """
 
+    # 1. API 키 확인
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY not found in environment variables")
 
+    # 2. 라이브러리 임포트
     try:
         import google.generativeai as genai
     except Exception as e:
         raise RuntimeError(f"google.generativeai import failed: {str(e)}")
 
-    model_name = os.getenv("GEMINI_MODEL") or "models/gemini-1.5-flash"
+    # 3. 모델 이름 결정 (404 에러 방지 로직)
+    # 환경 변수에서 가져오되, 없으면 가장 안정적인 latest 모델 사용
+    raw_model_name = os.getenv("GEMINI_MODEL") or "gemini-1.5-flash-latest"
+    
+    # 모델명 앞에 'models/'가 없으면 붙여줌 (SDK 권장 사항)
+    if not raw_model_name.startswith("models/"):
+        model_name = f"models/{raw_model_name}"
+    else:
+        model_name = raw_model_name
 
-    # Gemini 설정
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel(model_name)
+    # 4. Gemini 설정 및 모델 초기화
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel(model_name)
+    except Exception as e:
+        raise RuntimeError(f"Gemini Model Initialization failed: {str(e)}")
 
+    # 5. 분석용 데이터 준비
     payload = {
         "task": "Classify whether the email is spam or ham.",
         "output_format": {
@@ -79,21 +91,23 @@ def classify_with_llm(email: EmailRecord) -> Optional[LLMResult]:
         + json.dumps(payload, ensure_ascii=False)
     )
 
+    # 6. AI 분석 실행
     try:
         resp = model.generate_content(
             prompt,
             generation_config={"temperature": 0}
         )
     except Exception as e:
-        raise RuntimeError(f"Gemini API call failed: {str(e)}")
+        # 이 시점에서 404가 나면 라이브러리 버전 문제일 가능성이 큼
+        raise RuntimeError(f"Gemini API call failed (Check library version): {str(e)}")
 
+    # 7. 결과 파싱
     content = (getattr(resp, "text", "") or "").strip()
     json_text = _extract_json_candidate(content)
 
     try:
         data = json.loads(json_text)
     except Exception:
-        # JSON 파싱 실패해도 시스템 안죽게 처리
         return LLMResult(
             label="unknown",
             confidence=None,
