@@ -24,7 +24,6 @@ def analyze_mail(email_text: str) -> dict:
             from_addr=""
         )
     except Exception as e:
-        # EmailRecord 생성 실패 시에도 서버 죽지 않게 처리
         return {
             "error": f"EmailRecord creation failed: {str(e)}"
         }
@@ -33,7 +32,8 @@ def analyze_mail(email_text: str) -> dict:
         "heuristic": {},
         "urls": [],
         "virustotal": [],
-        "ai_analysis": {}
+        "ai_analysis": {},
+        "reply_text": ""   # ✅ 회신용 텍스트 추가
     }
 
     # ==========================================================
@@ -105,7 +105,50 @@ def analyze_mail(email_text: str) -> dict:
             result["ai_analysis"] = {"error": "LLM returned None"}
 
     except Exception as e:
-        # GEMINI_API_KEY 없거나 API 오류 등
         result["ai_analysis"] = {"error": str(e)}
+
+    # ==========================================================
+    # 4️⃣ 🔹 회신용 텍스트 자동 생성
+    # ==========================================================
+    try:
+        risk = result.get("heuristic", {}).get("risk_level", "판단불가")
+
+        malicious_count = sum(
+            item.get("malicious", 0)
+            for item in result.get("virustotal", [])
+            if isinstance(item, dict)
+        )
+
+        suspicious_count = sum(
+            item.get("suspicious", 0)
+            for item in result.get("virustotal", [])
+            if isinstance(item, dict)
+        )
+
+        if malicious_count > 0:
+            final_judgement = "악성 가능성이 높습니다."
+        elif suspicious_count > 0:
+            final_judgement = "주의가 필요합니다."
+        else:
+            final_judgement = "현재까지 악성 징후는 발견되지 않았습니다."
+
+        reply_text = f"""
+[보안 분석 결과 안내]
+
+신고해주신 메일에 대해 보안 분석을 진행하였습니다.
+
+■ 휴리스틱 위험도: {risk}
+■ 악성 탐지 수: {malicious_count}
+■ 의심 탐지 수: {suspicious_count}
+
+▶ 종합 판단: {final_judgement}
+
+추가 문의가 있으시면 I&S팀으로 연락 부탁드립니다.
+"""
+
+        result["reply_text"] = reply_text.strip()
+
+    except Exception as e:
+        result["reply_text"] = f"회신 문구 생성 실패: {str(e)}"
 
     return result
