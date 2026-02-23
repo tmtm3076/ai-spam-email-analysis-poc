@@ -57,14 +57,15 @@ def classify_with_llm(email: EmailRecord) -> Optional[LLMResult]:
     
     # 모델명 앞에 'models/'가 없으면 붙여줌 (SDK 권장 사항)
     if not raw_model_name.startswith("models/"):
-        model_name = f"models/{raw_model_name}"
+        final_model_name = f"models/{raw_model_name}"
     else:
-        model_name = raw_model_name
+        final_model_name = raw_model_name
 
     # 4. Gemini 설정 및 모델 초기화
     try:
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel(model_name)
+    # 정의한 final_model_name을 사용하여 모델 객체 생성
+        model = genai.GenerativeModel(model_name=final_model_name)
     except Exception as e:
         raise RuntimeError(f"Gemini Model Initialization failed: {str(e)}")
 
