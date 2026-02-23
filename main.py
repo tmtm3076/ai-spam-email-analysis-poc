@@ -76,7 +76,11 @@ def home():
                 <input type="file" id="fileElem" accept=".eml" style="display:none">
             </div>
 
-            <div id="file-name" style="margin-top:10px; font-size:14px;"></div>
+            <!-- 👇 파일 표시 영역 추가 -->
+            <div id="file-info" style="margin-top:10px; display:none;">
+                <span id="file-icon">📄</span>
+                <span id="file-name"></span>
+            </div>
             
             <button onclick="uploadFile()">분석하기</button>
 
