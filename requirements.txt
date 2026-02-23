@@ -1,25 +1,21 @@
-# 핵심 웹 프레임워크
+# 핵심 웹 프레임워크 및 비동기 엔진
 fastapi
 uvicorn[standard]
 httptools
 uvloop
 python-multipart
 
-# AI 및 API 관련
-google-generativeai==0.8.3
-google-ai-generativelanguage==0.6.10
-google-api-core==2.30.0
-python-dotenv==1.2.1
+# AI 및 API 통신 (SDK 대신 표준 HTTP 통신 사용)
 requests==2.32.5
+python-dotenv==1.2.1
 
-# 데이터 처리 (필요한 경우만 남기세요)
-pandas==2.3.3
-numpy==2.4.2
+# 데이터 처리 및 오피스 파일 지원
+pandas==2.2.3
+numpy==2.1.3
 openpyxl==3.1.5
 python-pptx==1.0.2
 
 # 유틸리티
-Pygments==2.19.2
-PyYAML==6.0.3
+Pygments==2.19.1
+PyYAML==6.0.2
 schedule==1.2.2
-
