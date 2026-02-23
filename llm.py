@@ -39,7 +39,7 @@ def classify_with_llm(email: EmailRecord) -> Optional[LLMResult]:
         GEMINI_API_KEY
 
     Optional:
-        GEMINI_MODEL (default: gemini-1.5-flash-latest)
+        GEMINI_MODEL (default: models/gemini-1.5-flash)
     """
 
     api_key = os.getenv("GEMINI_API_KEY")
@@ -51,7 +51,7 @@ def classify_with_llm(email: EmailRecord) -> Optional[LLMResult]:
     except Exception as e:
         raise RuntimeError(f"google.generativeai import failed: {str(e)}")
 
-    model_name = os.getenv("GEMINI_MODEL") or "gemini-1.5-flash-latest"
+    model_name = os.getenv("GEMINI_MODEL") or "models/gemini-1.5-flash"
 
     # Gemini 설정
     genai.configure(api_key=api_key)
