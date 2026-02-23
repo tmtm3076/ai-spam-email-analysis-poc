@@ -8,7 +8,10 @@ from typing import Optional
 from models import EmailRecord, LLMResult
 
 
-_CODE_FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL | re.IGNORECASE)
+_CODE_FENCE_RE = re.compile(
+    r"```(?:json)?\s*(.*?)\s*```",
+    re.DOTALL | re.IGNORECASE
+)
 
 
 def _extract_json_candidate(text: str) -> str:
@@ -19,54 +22,47 @@ def _extract_json_candidate(text: str) -> str:
     if m:
         return m.group(1).strip()
 
-    # Otherwise, try to grab the first JSON object/array looking substring.
+    # Try to grab first JSON object
     obj_start = t.find("{")
     obj_end = t.rfind("}")
     if 0 <= obj_start < obj_end:
-        return t[obj_start : obj_end + 1].strip()
-
-    arr_start = t.find("[")
-    arr_end = t.rfind("]")
-    if 0 <= arr_start < arr_end:
-        return t[arr_start : arr_end + 1].strip()
+        return t[obj_start:obj_end + 1].strip()
 
     return t
 
 
 def classify_with_llm(email: EmailRecord) -> Optional[LLMResult]:
-    """Attempt an LLM-based classification.
+    """
+    LLM 기반 스팸 분류
 
-    Returns None if LLM integration isn't configured.
+    Required:
+        GEMINI_API_KEY
 
-    Gemini configuration:
-    - GEMINI_API_KEY (required)
-    - GEMINI_MODEL (optional, default: gemini-1.5-flash)
+    Optional:
+        GEMINI_MODEL (default: gemini-1.5-flash)
     """
 
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY not found in environment variables")
-        return None
-    else:
-        print("✅ GEMINI_API_KEY loaded")
 
     try:
-        import google.generativeai as genai  # type: ignore
-    except Exception:
-        return None
+        import google.generativeai as genai
+    except Exception as e:
+        raise RuntimeError(f"google.generativeai import failed: {str(e)}")
 
     model_name = os.getenv("GEMINI_MODEL") or "gemini-1.5-flash"
 
+    # Gemini 설정
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel(model_name=model_name)
+    model = genai.GenerativeModel(model_name)
 
-    # Keep prompt small; body can be large.
     payload = {
         "task": "Classify whether the email is spam or ham.",
         "output_format": {
             "label": "spam|ham",
             "confidence": "0-1 (optional)",
-            "rationale": "short explanation",
+            "rationale": "short explanation"
         },
         "email": {
             "subject": email.subject,
@@ -83,10 +79,13 @@ def classify_with_llm(email: EmailRecord) -> Optional[LLMResult]:
         + json.dumps(payload, ensure_ascii=False)
     )
 
-    resp = model.generate_content(
-        prompt,
-        generation_config={"temperature": 0},
-    )
+    try:
+        resp = model.generate_content(
+            prompt,
+            generation_config={"temperature": 0}
+        )
+    except Exception as e:
+        raise RuntimeError(f"Gemini API call failed: {str(e)}")
 
     content = (getattr(resp, "text", "") or "").strip()
     json_text = _extract_json_candidate(content)
@@ -94,12 +93,25 @@ def classify_with_llm(email: EmailRecord) -> Optional[LLMResult]:
     try:
         data = json.loads(json_text)
     except Exception:
-        # If model returns non-JSON, still capture it.
-        return LLMResult(label="unknown", rationale=content, raw={"raw_text": content})
+        # JSON 파싱 실패해도 시스템 안죽게 처리
+        return LLMResult(
+            label="unknown",
+            confidence=None,
+            rationale="LLM returned non-JSON response",
+            raw={"raw_text": content},
+        )
+
+    if not isinstance(data, dict):
+        return LLMResult(
+            label="unknown",
+            confidence=None,
+            rationale="LLM returned unexpected format",
+            raw={"data": data},
+        )
 
     return LLMResult(
-        label=str(getattr(data, "get", lambda _k, _d=None: _d)("label", "unknown") or "unknown"),
-        confidence=data.get("confidence") if isinstance(data, dict) else None,
-        rationale=data.get("rationale") if isinstance(data, dict) else None,
-        raw=data if isinstance(data, dict) else {"data": data},
+        label=str(data.get("label", "unknown")),
+        confidence=data.get("confidence"),
+        rationale=data.get("rationale"),
+        raw=data,
     )
