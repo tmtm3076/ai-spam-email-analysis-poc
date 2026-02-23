@@ -76,6 +76,8 @@ def home():
                 <input type="file" id="fileElem" accept=".eml" style="display:none">
             </div>
 
+            <div id="file-name" style="margin-top:10px; font-size:14px;"></div>
+            
             <button onclick="uploadFile()">분석하기</button>
 
             <h3>🔎 분석 결과</h3>
