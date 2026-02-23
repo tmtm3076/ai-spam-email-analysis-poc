@@ -45,7 +45,7 @@ def classify_with_llm(email: EmailRecord) -> Optional[LLMResult]:
 
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
-        print("❌ GEMINI_API_KEY not found")
+        raise RuntimeError("GEMINI_API_KEY not found in environment variables")
         return None
     else:
         print("✅ GEMINI_API_KEY loaded")
