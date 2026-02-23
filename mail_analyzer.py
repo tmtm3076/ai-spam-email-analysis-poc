@@ -14,12 +14,20 @@ def analyze_mail(email_text: str) -> dict:
     결과를 통합 반환한다.
     """
 
-    # EmailRecord 객체 생성 (최소 필수값만 세팅)
-    email = EmailRecord(
-        subject="",
-        body_text=email_text,
-        from_addr=""
-    )
+    # ==========================================================
+    # EmailRecord 객체 생성 (안전 생성)
+    # ==========================================================
+    try:
+        email = EmailRecord(
+            subject="",
+            body_text=email_text or "",
+            from_addr=""
+        )
+    except Exception as e:
+        # EmailRecord 생성 실패 시에도 서버 죽지 않게 처리
+        return {
+            "error": f"EmailRecord creation failed: {str(e)}"
+        }
 
     result = {
         "heuristic": {},
@@ -40,7 +48,12 @@ def analyze_mail(email_text: str) -> dict:
     # ==========================================================
     # 2️⃣ URL 추출 및 VirusTotal 분석
     # ==========================================================
-    urls = extract_urls(email_text)
+    try:
+        urls = extract_urls(email_text or "")
+    except Exception as e:
+        result["urls"] = []
+        result["virustotal"].append({"error": f"URL extraction failed: {str(e)}"})
+        urls = []
 
     if urls:
         urls = urls[:3]  # 무료 API 보호
@@ -49,8 +62,24 @@ def analyze_mail(email_text: str) -> dict:
         for url in urls:
             try:
                 analysis_id = submit_url(url)
+
+                if not analysis_id:
+                    result["virustotal"].append({
+                        "url": url,
+                        "error": "No analysis_id returned"
+                    })
+                    continue
+
                 vt_result = get_result(analysis_id)
-                stats = extract_stats(vt_result)
+
+                if not vt_result:
+                    result["virustotal"].append({
+                        "url": url,
+                        "error": "No result from VirusTotal"
+                    })
+                    continue
+
+                stats = extract_stats(vt_result) or {}
 
                 result["virustotal"].append({
                     "url": url,
@@ -69,11 +98,14 @@ def analyze_mail(email_text: str) -> dict:
     # ==========================================================
     try:
         llm_result = classify_with_llm(email)
+
         if llm_result:
             result["ai_analysis"] = llm_result.model_dump()
         else:
             result["ai_analysis"] = {"error": "LLM returned None"}
+
     except Exception as e:
+        # GEMINI_API_KEY 없거나 API 오류 등
         result["ai_analysis"] = {"error": str(e)}
 
     return result
