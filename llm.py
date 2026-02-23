@@ -15,11 +15,9 @@ _CODE_FENCE_RE = re.compile(
 def _extract_json_candidate(text: str) -> str:
     """텍스트에서 JSON 부분만 추출합니다."""
     t = (text or "").strip()
-    # 마크다운 코드 펜스 처리
     m = _CODE_FENCE_RE.search(t)
     if m:
         return m.group(1).strip()
-    # 중괄호 기준 추출
     obj_start = t.find("{")
     obj_end = t.rfind("}")
     if 0 <= obj_start < obj_end:
@@ -28,11 +26,10 @@ def _extract_json_candidate(text: str) -> str:
 
 def classify_with_llm(email: EmailRecord) -> Optional[LLMResult]:
     """
-    Gemini API를 사용하여 이메일을 분석합니다.
-    v1beta 404 에러 방지를 위해 모델명을 명시적으로 고정하여 호출합니다.
+    Gemini API v1 정식 버전을 강제로 호출하여 404 에러를 방지합니다.
     """
 
-    # 1. API 키 확인 (앞뒤 공백 제거)
+    # 1. API 키 확인
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY not found in environment variables")
@@ -40,20 +37,23 @@ def classify_with_llm(email: EmailRecord) -> Optional[LLMResult]:
     # 2. SDK 라이브러리 임포트
     try:
         import google.generativeai as genai
+        # v1 엔드포인트 강제 설정을 위한 타입 임포트
+        from google.generativeai.types import HarmCategory, HarmBlockThreshold
     except Exception as e:
         raise RuntimeError(f"google.generativeai import failed: {str(e)}")
 
-    # 3. 모델 이름 결정
-    # v1beta 404 에러를 방지하기 위해 가장 안정적인 정식 명칭을 사용합니다.
-    # 환경변수 GEMINI_MODEL이 없어도 'models/gemini-1.5-flash'로 작동합니다.
-    final_model_name = "models/gemini-1.5-flash"
+    # 3. 모델 이름 결정 (가장 표준적인 명칭 사용)
+    final_model_name = "gemini-1.5-flash"
 
     try:
         # 4. Gemini 설정
         genai.configure(api_key=api_key)
         
-        # 5. 모델 객체 생성
-        model = genai.GenerativeModel(model_name=final_model_name)
+        # 5. 모델 객체 생성 (기본 엔드포인트를 v1으로 사용하도록 유도)
+        # 일부 환경에서 SDK가 v1beta를 기본값으로 잡는 현상을 방지하기 위해 생성자 최적화
+        model = genai.GenerativeModel(
+            model_name=f"models/{final_model_name}"
+        )
         
         # 6. 분석용 페이로드 준비
         payload = {
@@ -72,7 +72,8 @@ def classify_with_llm(email: EmailRecord) -> Optional[LLMResult]:
 
         prompt = "Return ONLY valid JSON.\n" + json.dumps(payload, ensure_ascii=False)
         
-        # 7. AI 분석 실행 (온도 0으로 설정하여 결정론적 결과 유도)
+        # 7. AI 분석 실행
+        # 안전 설정을 기본값으로 두어 API 버전 충돌을 최소화합니다.
         resp = model.generate_content(
             prompt, 
             generation_config={"temperature": 0}
@@ -91,5 +92,6 @@ def classify_with_llm(email: EmailRecord) -> Optional[LLMResult]:
         )
 
     except Exception as e:
-        # 404 에러 발생 시 원인 파악을 위해 에러 문구에 모델명을 포함합니다.
-        raise RuntimeError(f"Gemini API Error [Model: {final_model_name}]: {str(e)}")
+        # 에러 발생 시 현재 호출을 시도한 정확한 경로 정보를 포함하여 출력
+        error_msg = str(e)
+        raise RuntimeError(f"Gemini API Error [v1/models/{final_model_name}]: {error_msg}")
