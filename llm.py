@@ -19,29 +19,23 @@ def _extract_json_candidate(text: str) -> str:
     return t
 
 def classify_with_llm(email: EmailRecord) -> Optional[LLMResult]:
-    """
-    Gemini 3 Flash 모델을 사용하여 이메일을 분류합니다.
-    SDK를 사용하지 않고 직접 REST API(v1)를 호출하여 환경 변수 꼬임을 방지합니다.
-    """
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
     if not api_key:
-        raise RuntimeError("GEMINI_API_KEY missing in environment variables")
+        raise RuntimeError("GEMINI_API_KEY missing")
 
-    # [핵심] Gemini 3 Flash 모델의 정식 v1 엔드포인트
+    # 주소는 그대로 유지합니다 (Gemini 3 Flash)
     api_url = f"https://generativelanguage.googleapis.com/v1/models/gemini-3-flash:generateContent?key={api_key}"
 
-    # 최신 모델에 최적화된 프롬프트
     prompt_text = (
-        "Role: Professional Security Analyst\n"
-        "Task: Classify the following email as 'spam' or 'ham'.\n"
-        "Constraint: Return ONLY a valid JSON object.\n\n"
+        "Role: Expert Security Analyst\n"
+        "Task: Classify if the email is 'spam' or 'ham'.\n"
+        "Output: Return ONLY a valid JSON object. No preamble, no markdown.\n"
         "Format: {\"label\": \"spam\"|\"ham\", \"confidence\": 0.0-1.0, \"rationale\": \"string\"}\n\n"
         f"Subject: {email.subject}\n"
-        f"From: {email.from_addr}\n"
-        f"Body: {email.body_text[:3000]}"
+        f"Body: {email.body_text[:2500]}"
     )
 
-    # Gemini 3 Flash 규격에 맞춘 페이로드
+    # 에러가 났던 responseMimeType을 제거하고 가장 표준적인 설정만 남깁니다.
     payload = {
         "contents": [{
             "parts": [{"text": prompt_text}]
@@ -49,29 +43,26 @@ def classify_with_llm(email: EmailRecord) -> Optional[LLMResult]:
         "generationConfig": {
             "temperature": 0,
             "topP": 0.95,
-            "maxOutputTokens": 1024,
-            "responseMimeType": "application/json"  # 모델 수준에서 JSON 출력 강제
+            "maxOutputTokens": 1024
+            # responseMimeType 필드를 삭제하여 호환성 문제를 해결했습니다.
         }
     }
 
     try:
-        # App Runner 캐시 영향을 받지 않는 표준 HTTP 호출
         headers = {'Content-Type': 'application/json'}
         response = requests.post(api_url, headers=headers, json=payload, timeout=25)
         res_json = response.json()
 
         if response.status_code != 200:
             error_msg = res_json.get("error", {}).get("message", "Unknown API Error")
-            # 여기서 404가 난다면 API Key의 권한/지역 문제입니다.
             raise RuntimeError(f"Gemini 3 API Error: {error_msg}")
 
-        # 응답 데이터 파싱
-        try:
-            ai_text = res_json['candidates'][0]['content']['parts'][0]['text']
-            json_text = _extract_json_candidate(ai_text)
-            data = json.loads(json_text)
-        except (KeyError, IndexError, json.JSONDecodeError) as parse_err:
-            raise RuntimeError(f"Response Parsing Failed: {str(parse_err)}")
+        # AI 응답 텍스트 추출
+        ai_text = res_json['candidates'][0]['content']['parts'][0]['text']
+        
+        # JSON 후보 추출 로직 실행
+        json_text = _extract_json_candidate(ai_text)
+        data = json.loads(json_text)
 
         return LLMResult(
             label=str(data.get("label", "unknown")),
@@ -81,5 +72,4 @@ def classify_with_llm(email: EmailRecord) -> Optional[LLMResult]:
         )
 
     except Exception as e:
-        # 상세 에러 추적을 위한 접두어 추가
-        raise RuntimeError(f"GEMINI_3_FLASH_ERROR: {str(e)}")
+        raise RuntimeError(f"GEMINI_3_FLASH_RETRY_ERROR: {str(e)}")
