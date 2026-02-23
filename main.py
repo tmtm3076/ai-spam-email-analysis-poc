@@ -85,7 +85,18 @@ def home():
             <button onclick="uploadFile()">분석하기</button>
 
             <h3>🔎 분석 결과</h3>
-            <pre id="result">결과가 여기에 표시됩니다.</pre>
+
+            <div id="summary-box" style="display:none; margin-top:15px;">
+                <textarea id="replyText"
+                    style="width:100%; height:200px; padding:10px; font-size:14px;"
+                    readonly></textarea>
+
+                <button onclick="copyReply()" style="margin-top:8px;">
+                    📋 결과 복사
+                </button>
+            </div>
+
+<pre id="rawResult" style="margin-top:20px; background:#f5f5f5; padding:10px; font-size:12px;"></pre>
         </div>
 
         <script>
@@ -139,16 +150,59 @@ def home():
                 const formData = new FormData();
                 formData.append("file", selectedFile);
 
-                document.getElementById("result").textContent = "⏳ 분석 중...";
+                const resultBox = document.getElementById("result");
+                resultBox.textContent = "⏳ 분석 중...";
 
-                const response = await fetch("/analyze", {
-                    method: "POST",
-                    body: formData
-                });
+                try {
+                    const response = await fetch("/analyze", {
+                        method: "POST",
+                        body: formData
+                    });
 
-                const data = await response.json();
-                document.getElementById("result").textContent =
-                    JSON.stringify(data, null, 2);
+                    const data = await response.json();
+
+                    let output = "";
+
+                    // -----------------------------
+                    // 1️⃣ 휴리스틱 분석
+                    // -----------------------------
+                    if (data.heuristic) {
+                        output += "📌 휴리스틱 분석\n";
+                        output += "----------------------------------\n";
+                        output += "Score: " + (data.heuristic.score ?? "-") + "\n";
+                        output += "Reason: " + (data.heuristic.reason ?? "-") + "\n\n";
+                    }
+
+                    // -----------------------------
+                    // 2️⃣ VirusTotal 분석
+                    // -----------------------------
+                    if (data.virustotal && data.virustotal.length > 0) {
+                        output += "🌐 URL 분석 (VirusTotal)\n";
+                        output += "----------------------------------\n";
+
+                        data.virustotal.forEach(v => {
+                            output += "URL: " + v.url + "\n";
+                            output += "Malicious: " + (v.malicious ?? 0) + "\n";
+                            output += "Suspicious: " + (v.suspicious ?? 0) + "\n\n";
+                        });
+                    }
+
+                    // -----------------------------
+                    // 3️⃣ AI 분석
+                    // -----------------------------
+                    if (data.ai_analysis) {
+                        output += "🤖 AI 종합 판단\n";
+                        output += "----------------------------------\n";
+                        output += "Label: " + (data.ai_analysis.label ?? "unknown") + "\n";
+                        output += "Confidence: " + (data.ai_analysis.confidence ?? "-") + "\n";
+                        output += "Rationale: " + (data.ai_analysis.rationale ?? "-") + "\n\n";
+                    }
+
+                    resultBox.textContent = output;
+
+                } catch (error) {
+                    resultBox.textContent = "❌ 오류 발생: " + error;
+                }
             }
         </script>
     </body>
