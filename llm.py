@@ -45,7 +45,10 @@ def classify_with_llm(email: EmailRecord) -> Optional[LLMResult]:
 
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
+        print("❌ GEMINI_API_KEY not found")
         return None
+    else:
+        print("✅ GEMINI_API_KEY loaded")
 
     try:
         import google.generativeai as genai  # type: ignore
