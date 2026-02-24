@@ -44,8 +44,7 @@ def classify_with_llm(email: EmailRecord) -> Optional[LLMResult]:
     "generationConfig": {
         "temperature": 0,
         "maxOutputTokens": 800
-    },
-    "response_mime_type": "application/json"
+        }
     }
 
     try:
@@ -65,18 +64,17 @@ def classify_with_llm(email: EmailRecord) -> Optional[LLMResult]:
         if not res_json.get("candidates"):
             raise RuntimeError("No candidates returned from Gemini")
 
-            ai_text = res_json['candidates'][0]['content']['parts'][0]['text']
+           ai_text = res_json['candidates'][0]['content']['parts'][0]['text']
 
-        try:
-            data = json.loads(_extract_json_candidate(ai_text))
-        except json.JSONDecodeError:
-            # 🔥 JSON이 깨졌을 경우 fallback 처리
-            return LLMResult(
-                label="unknown",
-                confidence=0.0,
-                rationale="Invalid JSON returned from LLM",
-                raw={"raw_text": ai_text}
-            )
+            try:
+                data = json.loads(_extract_json_candidate(ai_text))
+            except json.JSONDecodeError:
+                return LLMResult(
+                    label="unknown",
+                    confidence=0.0,
+                    rationale="Invalid JSON returned from LLM",
+                    raw={"raw_text": ai_text}
+                )
 
     except Exception as e:
         raise RuntimeError(f"FINAL_STABLE_CALL_ERROR: {str(e)}")
