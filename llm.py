@@ -5,10 +5,6 @@ client = OpenAI()
 
 
 def classify_with_llm(email):
-    """
-    OpenAI JSON 모드 사용
-    JSON 깨짐 방지 버전
-    """
 
     prompt = f"""
 당신은 침해사고 분석을 수행하는 보안 전문가입니다.
@@ -16,11 +12,11 @@ def classify_with_llm(email):
 
 반드시 아래 형식의 JSON으로만 답하십시오.
 
-{
+{{
   "label": "spam | phishing | ham | malicious | unknown",
-  "confidence": 0~1 사이 실수,
+  "confidence": 0과 1 사이의 실수,
   "rationale": "보안 전문가 관점에서 단계별 분석 근거"
-}
+}}
 
 메일 내용:
 {email.body_text}
@@ -34,12 +30,11 @@ def classify_with_llm(email):
                 {"role": "user", "content": prompt}
             ],
             temperature=0.2,
-            response_format={"type": "json_object"}  # 🔥 핵심
+            response_format={"type": "json_object"}
         )
 
         content = response.choices[0].message.content
 
-        # JSON 모드라서 바로 파싱 가능
         return json.loads(content)
 
     except Exception as e:
