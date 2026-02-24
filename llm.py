@@ -28,7 +28,7 @@ def classify_with_llm(email):
     prompt = f"""
 당신은 침해사고 대응을 수행하는 보안 전문가입니다.
 감정적 표현 없이, 기술적 근거 중심으로 단계별 분석하십시오.
-
+반드시 모든 출력은 한국어로 작성하십시오.
 반드시 JSON만 출력하십시오.
 코드블록 사용 금지.
 설명 문장 금지.
@@ -38,7 +38,7 @@ JSON 외 텍스트 출력 금지.
 {{
   "label": "spam | phishing | ham | malicious | unknown",
   "confidence": 0.0,
-  "rationale": "보안 전문가 관점의 단계별 분석 근거"
+  "rationale": "보안 전문가 관점의 단계별 분석 근거(반드시 한글)"
 }}
 
 메일 내용:
