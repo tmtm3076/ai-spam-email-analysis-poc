@@ -40,16 +40,33 @@ def classify_with_llm(email: EmailRecord) -> Optional[LLMResult]:
     )
 
     payload = {
-    "contents": [{"parts": [{"text": prompt_text}]}],
-    "generationConfig": {
-        "temperature": 0,
-        "maxOutputTokens": 800
+        "contents": [
+            {
+                "parts": [
+                    {"text": prompt_text}
+                ]
+            }
+        ],
+        "generationConfig": {
+            "temperature": 0,
+            "maxOutputTokens": 800
         }
     }
 
     try:
         headers = {'Content-Type': 'application/json'}
+           # 🔥 1단계: 실제 전송되는 payload 로그 출력
+        print("==== GEMINI REQUEST PAYLOAD ====")
+        print(payload)
+        print("================================")
+
         response = requests.post(api_url, headers=headers, json=payload, timeout=20)
+
+    # 🔥 응답도 같이 찍으면 더 좋음
+        print("==== GEMINI RESPONSE STATUS ====", response.status_code)
+        print("==== GEMINI RESPONSE TEXT ====")
+        print(response.text)
+        print("================================")
 
         if response.status_code != 200:
             try:
