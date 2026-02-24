@@ -24,7 +24,6 @@ def classify_with_llm(email: EmailRecord) -> Optional[LLMResult]:
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY missing")
 
-    # ✅ 최신 지원 모델로 변경
     model_name = "gemini-2.5-flash"
 
     api_url = (
@@ -54,15 +53,20 @@ def classify_with_llm(email: EmailRecord) -> Optional[LLMResult]:
     }
 
     try:
-        headers = {'Content-Type': 'application/json'}
-           # 🔥 1단계: 실제 전송되는 payload 로그 출력
+        headers = {"Content-Type": "application/json"}
+
+        # DEBUG 로그
         print("==== GEMINI REQUEST PAYLOAD ====")
         print(payload)
         print("================================")
 
-        response = requests.post(api_url, headers=headers, json=payload, timeout=20)
+        response = requests.post(
+            api_url,
+            headers=headers,
+            json=payload,
+            timeout=20
+        )
 
-    # 🔥 응답도 같이 찍으면 더 좋음
         print("==== GEMINI RESPONSE STATUS ====", response.status_code)
         print("==== GEMINI RESPONSE TEXT ====")
         print(response.text)
@@ -81,17 +85,24 @@ def classify_with_llm(email: EmailRecord) -> Optional[LLMResult]:
         if not res_json.get("candidates"):
             raise RuntimeError("No candidates returned from Gemini")
 
-           ai_text = res_json['candidates'][0]['content']['parts'][0]['text']
+        ai_text = res_json["candidates"][0]["content"]["parts"][0]["text"]
 
-            try:
-                data = json.loads(_extract_json_candidate(ai_text))
-            except json.JSONDecodeError:
-                return LLMResult(
-                    label="unknown",
-                    confidence=0.0,
-                    rationale="Invalid JSON returned from LLM",
-                    raw={"raw_text": ai_text}
-                )
+        try:
+            data = json.loads(_extract_json_candidate(ai_text))
+        except json.JSONDecodeError:
+            return LLMResult(
+                label="unknown",
+                confidence=0.0,
+                rationale="Invalid JSON returned from LLM",
+                raw={"raw_text": ai_text}
+            )
+
+        return LLMResult(
+            label=data.get("label", "unknown"),
+            confidence=float(data.get("confidence", 0.0)),
+            rationale=data.get("rationale", ""),
+            raw=data
+        )
 
     except Exception as e:
         raise RuntimeError(f"FINAL_STABLE_CALL_ERROR: {str(e)}")
