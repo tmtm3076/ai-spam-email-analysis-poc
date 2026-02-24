@@ -5,9 +5,10 @@ httptools
 uvloop
 python-multipart
 
-# AI 및 API 통신 (SDK 대신 표준 HTTP 통신 사용)
+# AI 및 API 통신
 requests==2.32.5
 python-dotenv==1.2.1
+openai>=1.0.0
 
 # 데이터 처리 및 오피스 파일 지원
 pandas==2.2.3
