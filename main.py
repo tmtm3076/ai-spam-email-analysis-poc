@@ -36,7 +36,7 @@ def home():
 
             <div id="drop-area">
                 📂 드래그 앤 드롭 또는 클릭하여 파일 선택
-                <input type="file" id="fileElem" accept=".eml" style="display:none">
+                <input type="file" id="fileElem" accept=".eml,.msg" style="display:none">
             </div>
 
             <div id="file-info" style="display:none;">
