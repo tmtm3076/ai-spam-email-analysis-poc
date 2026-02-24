@@ -48,7 +48,7 @@ def classify_with_llm(email: EmailRecord) -> Optional[LLMResult]:
         ],
         "generationConfig": {
             "temperature": 0,
-            "maxOutputTokens": 800
+            "maxOutputTokens": 1500
         }
     }
 
