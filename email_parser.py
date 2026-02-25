@@ -8,7 +8,7 @@ from typing import Dict, List, Tuple
 
 import hashlib
 
-from .models import EmailRecord
+from models import EmailRecord
 
 # msg 지원
 try:
