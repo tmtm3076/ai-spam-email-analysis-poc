@@ -1,97 +1,77 @@
-from fastapi import FastAPI, UploadFile, File
-from fastapi.responses import HTMLResponse
-import tempfile
-import os
+from fastapi import FastAPI, UploadFile, File, BackgroundTasks
+from fastapi.responses import JSONResponse
+import uuid
 
-from mail_analyzer import analyze_mail
-from email_parser import parse_email_file  # ✅ 우리가 만든 통합 파서 사용
+from attachments import extract_attachments_from_eml
+from virustotal_api import calculate_sha256
+from vt_tasks import process_file_analysis, ANALYSIS_STORE
 
 app = FastAPI()
 
 
-# ==========================================================
-# 🔷 1️⃣ GUI 화면
-# ==========================================================
-@app.get("/", response_class=HTMLResponse)
-def home():
-    return """
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>AI Email Security Analyzer</title>
-        <meta charset="UTF-8">
-    </head>
-    <body>
-        <h2>📧 AI Email Security Analyzer</h2>
-        <p>.eml 또는 .msg 파일 업로드</p>
-
-        <input type="file" id="fileElem" accept=".eml,.msg">
-        <button onclick="uploadFile()">분석하기</button>
-
-        <h3>결과</h3>
-        <pre id="result"></pre>
-
-        <script>
-            async function uploadFile() {
-                const fileInput = document.getElementById('fileElem');
-                const file = fileInput.files[0];
-
-                if (!file) {
-                    alert("파일을 선택하세요.");
-                    return;
-                }
-
-                const formData = new FormData();
-                formData.append("file", file);
-
-                const res = await fetch("/analyze", {
-                    method: "POST",
-                    body: formData
-                });
-
-                const data = await res.json();
-                document.getElementById("result").textContent =
-                    JSON.stringify(data, null, 2);
-            }
-        </script>
-    </body>
-    </html>
+@app.post("/analyze-email/")
+async def analyze_email(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...)
+):
+    """
+    EML 업로드 → 첨부파일 추출 → VT 분석 (비동기)
     """
 
+    if not file.filename.endswith(".eml"):
+        return JSONResponse(
+            status_code=400,
+            content={"error": "Only .eml files are supported"}
+        )
 
-# ==========================================================
-# 🔷 2️⃣ 이메일 분석 API (안정화 버전)
-# ==========================================================
-@app.post("/analyze")
-async def analyze_email(file: UploadFile = File(...)):
+    eml_bytes = await file.read()
 
-    filename = file.filename.lower()
+    attachments = extract_attachments_from_eml(eml_bytes)
 
-    if not (filename.endswith(".eml") or filename.endswith(".msg")):
-        return {"error": "Only .eml or .msg files are supported."}
+    if not attachments:
+        return {"message": "첨부파일 없음"}
 
-    try:
-        # 🔹 1️⃣ 임시 파일로 저장 (msg 파싱 위해 필요)
-        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(filename)[1]) as tmp:
-            content = await file.read()
-            tmp.write(content)
-            tmp_path = tmp.name
+    response_data = []
 
-        # 🔹 2️⃣ 통합 파서 호출
-        email_record = parse_email_file(tmp_path)
+    for attachment in attachments:
+        filename = attachment["filename"]
+        file_bytes = attachment["content"]
 
-        # 🔹 3️⃣ 분석 실행
-        result = analyze_mail(email_record.body_text)
+        file_hash = calculate_sha256(file_bytes)
 
-        return result
+        # 초기 상태 저장
+        ANALYSIS_STORE[file_hash] = {
+            "status": "pending"
+        }
 
-    except Exception as e:
-        return {"error": str(e)}
+        # 백그라운드 분석 시작
+        background_tasks.add_task(
+            process_file_analysis,
+            file_hash,
+            file_bytes
+        )
 
-    finally:
-        # 🔹 4️⃣ 임시 파일 삭제 (AppRunner 디스크 누수 방지)
-        try:
-            if "tmp_path" in locals() and os.path.exists(tmp_path):
-                os.remove(tmp_path)
-        except Exception:
-            pass
+        response_data.append({
+            "filename": filename,
+            "sha256": file_hash,
+            "status": "analysis_started"
+        })
+
+    return {
+        "message": "VT 분석 시작됨 (비동기)",
+        "files": response_data
+    }
+
+
+@app.get("/analysis-result/{file_hash}")
+def get_analysis_result_api(file_hash: str):
+    """
+    분석 결과 조회 API
+    """
+
+    result = ANALYSIS_STORE.get(file_hash)
+
+    if not result:
+        return {"status": "not_found"}
+
+    return result
