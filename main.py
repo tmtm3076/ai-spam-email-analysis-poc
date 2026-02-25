@@ -1,8 +1,9 @@
 from fastapi import FastAPI, UploadFile, File, BackgroundTasks
 from fastapi.responses import JSONResponse
 import uuid
+import tempfile
 
-from attachments import extract_attachments_from_eml
+from src.email_parser import parse_email_file
 from virustotal_api import calculate_sha256
 from vt_tasks import process_file_analysis, ANALYSIS_STORE
 
@@ -24,9 +25,15 @@ async def analyze_email(
             content={"error": "Only .eml files are supported"}
         )
 
-    eml_bytes = await file.read()
+    # 임시파일 저장
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".eml") as tmp:
+        tmp.write(await file.read())
+        tmp_path = tmp.name
 
-    attachments = extract_attachments_from_eml(eml_bytes)
+    # email_parser 사용
+    email_record = parse_email_file(tmp_path)
+
+    attachments = email_record.attachments
 
     if not attachments:
         return {"message": "첨부파일 없음"}
