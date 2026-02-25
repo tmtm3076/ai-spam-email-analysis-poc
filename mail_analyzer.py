@@ -9,9 +9,10 @@ def analyze_mail(email_text: str) -> dict:
     """
     메일 본문 분석
     1) 휴리스틱
-    2) VirusTotal
-    3) LLM 정밀 분석
-    4) 전문가형 회신 텍스트 생성
+    2) URL VirusTotal
+    3) (확장 대비) 첨부파일 분석 영역
+    4) LLM 정밀 분석
+    5) 전문가형 회신 텍스트 생성
     """
 
     # ==========================================================
@@ -30,6 +31,7 @@ def analyze_mail(email_text: str) -> dict:
         "heuristic": {},
         "urls": [],
         "virustotal": [],
+        "attachments": [],  # 🔥 확장 대비
         "ai_analysis": {},
         "reply_text": ""
     }
@@ -58,6 +60,7 @@ def analyze_mail(email_text: str) -> dict:
         for url in urls:
             try:
                 analysis_id = submit_url(url)
+
                 if not analysis_id:
                     result["virustotal"].append({
                         "url": url,
@@ -66,6 +69,7 @@ def analyze_mail(email_text: str) -> dict:
                     continue
 
                 vt_result = get_result(analysis_id)
+
                 if not vt_result:
                     result["virustotal"].append({
                         "url": url,
@@ -92,7 +96,17 @@ def analyze_mail(email_text: str) -> dict:
         result["virustotal"].append({"error": f"VT failed: {str(e)}"})
 
     # ==========================================================
-    # 3️⃣ LLM 전문가형 분석
+    # 3️⃣ 첨부파일 분석 영역 (현재는 구조만 유지)
+    # ==========================================================
+    try:
+        # 🔥 나중에 email.attachments 순회 예정
+        # 지금은 email_text 기반 구조라 attachments 없음
+        result["attachments"] = []
+    except Exception as e:
+        result["attachments"] = [{"error": str(e)}]
+
+    # ==========================================================
+    # 4️⃣ LLM 전문가형 분석
     # ==========================================================
     try:
         llm_result = classify_with_llm(email)
@@ -106,15 +120,19 @@ def analyze_mail(email_text: str) -> dict:
         result["ai_analysis"] = {"error": str(e)}
 
     # ==========================================================
-    # 4️⃣ 전문가형 종합 판단 텍스트 생성
+    # 5️⃣ 전문가형 종합 판단 텍스트 생성
     # ==========================================================
     try:
         heuristic = result.get("heuristic", {})
         vt = result.get("virustotal", [])
         ai = result.get("ai_analysis", {})
 
-        malicious_total = sum(i.get("malicious", 0) for i in vt if isinstance(i, dict))
-        suspicious_total = sum(i.get("suspicious", 0) for i in vt if isinstance(i, dict))
+        malicious_total = sum(
+            i.get("malicious", 0) for i in vt if isinstance(i, dict)
+        )
+        suspicious_total = sum(
+            i.get("suspicious", 0) for i in vt if isinstance(i, dict)
+        )
 
         final_reason = []
 
@@ -123,7 +141,7 @@ def analyze_mail(email_text: str) -> dict:
         final_reason.append(f"- 점수: {heuristic.get('score', 'N/A')}")
         final_reason.append("")
 
-        final_reason.append("■ VirusTotal 분석")
+        final_reason.append("■ URL VirusTotal 분석")
         final_reason.append(f"- 악성 탐지 수: {malicious_total}")
         final_reason.append(f"- 의심 탐지 수: {suspicious_total}")
         final_reason.append("")
@@ -131,7 +149,7 @@ def analyze_mail(email_text: str) -> dict:
         final_reason.append("■ AI 정밀 분석")
         final_reason.append(f"- 분류: {ai.get('label', 'unknown')}")
         final_reason.append(f"- 신뢰도: {ai.get('confidence', 0)}")
-        final_reason.append(f"- 분석 근거:")
+        final_reason.append("- 분석 근거:")
         final_reason.append(f"{ai.get('rationale', '근거 없음')}")
         final_reason.append("")
 
@@ -140,6 +158,8 @@ def analyze_mail(email_text: str) -> dict:
             final = "다수 보안엔진에서 악성으로 탐지되어 매우 위험합니다."
         elif suspicious_total > 0:
             final = "일부 엔진에서 의심 탐지되어 주의가 필요합니다."
+        elif ai.get("label") == "phishing":
+            final = "피싱 메일 가능성이 높습니다."
         elif ai.get("label") == "spam":
             final = "AI 분석 결과 스팸 가능성이 높습니다."
         elif ai.get("label") == "ham":
