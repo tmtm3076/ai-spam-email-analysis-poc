@@ -1,16 +1,24 @@
 from url_extractor import extract_urls
-from virustotal_api import submit_url, get_result, extract_stats
+from virustotal_api import (
+    submit_url,
+    get_result,
+    extract_stats,
+    calculate_sha256,
+    get_file_report_by_hash,
+    extract_file_stats,
+)
 from heuristics import score_email
 from llm import classify_with_llm
 from models import EmailRecord
+from attachments import extract_attachments_from_eml
 
 
-def analyze_mail(email_text: str) -> dict:
+def analyze_mail(email_text: str, eml_bytes: bytes | None = None) -> dict:
     """
-    메일 본문 분석
+    메일 분석 전체 흐름
     1) 휴리스틱
     2) URL VirusTotal
-    3) (확장 대비) 첨부파일 분석 영역
+    3) 첨부파일 SHA256 기반 VirusTotal 조회
     4) LLM 정밀 분석
     5) 전문가형 회신 텍스트 생성
     """
@@ -31,7 +39,7 @@ def analyze_mail(email_text: str) -> dict:
         "heuristic": {},
         "urls": [],
         "virustotal": [],
-        "attachments": [],  # 🔥 확장 대비
+        "attachments": [],
         "ai_analysis": {},
         "reply_text": ""
     }
@@ -60,23 +68,7 @@ def analyze_mail(email_text: str) -> dict:
         for url in urls:
             try:
                 analysis_id = submit_url(url)
-
-                if not analysis_id:
-                    result["virustotal"].append({
-                        "url": url,
-                        "error": "No analysis_id"
-                    })
-                    continue
-
                 vt_result = get_result(analysis_id)
-
-                if not vt_result:
-                    result["virustotal"].append({
-                        "url": url,
-                        "error": "No result"
-                    })
-                    continue
-
                 stats = extract_stats(vt_result) or {}
 
                 result["virustotal"].append({
@@ -96,12 +88,47 @@ def analyze_mail(email_text: str) -> dict:
         result["virustotal"].append({"error": f"VT failed: {str(e)}"})
 
     # ==========================================================
-    # 3️⃣ 첨부파일 분석 영역 (현재는 구조만 유지)
+    # 3️⃣ 첨부파일 SHA256 기반 분석
     # ==========================================================
     try:
-        # 🔥 나중에 email.attachments 순회 예정
-        # 지금은 email_text 기반 구조라 attachments 없음
-        result["attachments"] = []
+        attachment_malicious_total = 0
+        attachment_suspicious_total = 0
+
+        if eml_bytes:
+            attachments = extract_attachments_from_eml(eml_bytes)
+
+            for file in attachments:
+                try:
+                    file_hash = calculate_sha256(file["content"])
+                    vt_report = get_file_report_by_hash(file_hash)
+
+                    if vt_report:
+                        stats = extract_file_stats(vt_report)
+
+                        attachment_malicious_total += stats.get("malicious", 0)
+                        attachment_suspicious_total += stats.get("suspicious", 0)
+
+                        result["attachments"].append({
+                            "filename": file["filename"],
+                            "sha256": file_hash,
+                            "malicious": stats.get("malicious", 0),
+                            "suspicious": stats.get("suspicious", 0),
+                            "harmless": stats.get("harmless", 0),
+                            "undetected": stats.get("undetected", 0),
+                        })
+                    else:
+                        result["attachments"].append({
+                            "filename": file["filename"],
+                            "sha256": file_hash,
+                            "message": "VirusTotal에 아직 등록되지 않은 파일"
+                        })
+
+                except Exception as e:
+                    result["attachments"].append({
+                        "filename": file.get("filename", "unknown"),
+                        "error": str(e)
+                    })
+
     except Exception as e:
         result["attachments"] = [{"error": str(e)}]
 
@@ -110,12 +137,7 @@ def analyze_mail(email_text: str) -> dict:
     # ==========================================================
     try:
         llm_result = classify_with_llm(email)
-
-        if isinstance(llm_result, dict):
-            result["ai_analysis"] = llm_result
-        else:
-            result["ai_analysis"] = {"error": "Invalid LLM response"}
-
+        result["ai_analysis"] = llm_result if isinstance(llm_result, dict) else {}
     except Exception as e:
         result["ai_analysis"] = {"error": str(e)}
 
@@ -126,13 +148,13 @@ def analyze_mail(email_text: str) -> dict:
         heuristic = result.get("heuristic", {})
         vt = result.get("virustotal", [])
         ai = result.get("ai_analysis", {})
+        attachments = result.get("attachments", [])
 
-        malicious_total = sum(
-            i.get("malicious", 0) for i in vt if isinstance(i, dict)
-        )
-        suspicious_total = sum(
-            i.get("suspicious", 0) for i in vt if isinstance(i, dict)
-        )
+        url_malicious = sum(i.get("malicious", 0) for i in vt if isinstance(i, dict))
+        url_suspicious = sum(i.get("suspicious", 0) for i in vt if isinstance(i, dict))
+
+        file_malicious = sum(i.get("malicious", 0) for i in attachments if isinstance(i, dict))
+        file_suspicious = sum(i.get("suspicious", 0) for i in attachments if isinstance(i, dict))
 
         final_reason = []
 
@@ -142,8 +164,13 @@ def analyze_mail(email_text: str) -> dict:
         final_reason.append("")
 
         final_reason.append("■ URL VirusTotal 분석")
-        final_reason.append(f"- 악성 탐지 수: {malicious_total}")
-        final_reason.append(f"- 의심 탐지 수: {suspicious_total}")
+        final_reason.append(f"- 악성 탐지 수: {url_malicious}")
+        final_reason.append(f"- 의심 탐지 수: {url_suspicious}")
+        final_reason.append("")
+
+        final_reason.append("■ 첨부파일 분석")
+        final_reason.append(f"- 악성 탐지 수: {file_malicious}")
+        final_reason.append(f"- 의심 탐지 수: {file_suspicious}")
         final_reason.append("")
 
         final_reason.append("■ AI 정밀 분석")
@@ -153,15 +180,15 @@ def analyze_mail(email_text: str) -> dict:
         final_reason.append(f"{ai.get('rationale', '근거 없음')}")
         final_reason.append("")
 
-        # 최종 판단 로직
-        if malicious_total > 0:
+        # 최종 종합 판단
+        if file_malicious > 0 or url_malicious > 0:
             final = "다수 보안엔진에서 악성으로 탐지되어 매우 위험합니다."
-        elif suspicious_total > 0:
+        elif file_suspicious > 0 or url_suspicious > 0:
             final = "일부 엔진에서 의심 탐지되어 주의가 필요합니다."
         elif ai.get("label") == "phishing":
             final = "피싱 메일 가능성이 높습니다."
         elif ai.get("label") == "spam":
-            final = "AI 분석 결과 스팸 가능성이 높습니다."
+            final = "스팸 가능성이 높습니다."
         elif ai.get("label") == "ham":
             final = "정상 메일로 판단됩니다."
         else:
