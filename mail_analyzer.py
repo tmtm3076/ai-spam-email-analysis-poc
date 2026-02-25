@@ -3,8 +3,7 @@ from virustotal_api import (
     submit_url,
     get_result,
     extract_stats,
-    calculate_sha256,
-    get_file_report_by_hash,
+    analyze_file_with_vt,
     extract_file_stats,
 )
 from heuristics import score_email
@@ -18,7 +17,7 @@ def analyze_mail(email_text: str, eml_bytes: bytes | None = None) -> dict:
     메일 분석 전체 흐름
     1) 휴리스틱
     2) URL VirusTotal
-    3) 첨부파일 SHA256 기반 VirusTotal 조회
+    3) 첨부파일 VT 자동 업로드 포함 분석
     4) LLM 정밀 분석
     5) 전문가형 회신 텍스트 생성
     """
@@ -88,40 +87,28 @@ def analyze_mail(email_text: str, eml_bytes: bytes | None = None) -> dict:
         result["virustotal"].append({"error": f"VT failed: {str(e)}"})
 
     # ==========================================================
-    # 3️⃣ 첨부파일 SHA256 기반 분석
+    # 3️⃣ 첨부파일 분석 (VT 자동 업로드 포함)
     # ==========================================================
     try:
-        attachment_malicious_total = 0
-        attachment_suspicious_total = 0
-
         if eml_bytes:
             attachments = extract_attachments_from_eml(eml_bytes)
 
             for file in attachments:
                 try:
-                    file_hash = calculate_sha256(file["content"])
-                    vt_report = get_file_report_by_hash(file_hash)
+                    vt_report = analyze_file_with_vt(
+                        file_bytes=file["content"],
+                        filename=file["filename"]
+                    )
 
-                    if vt_report:
-                        stats = extract_file_stats(vt_report)
+                    stats = extract_file_stats(vt_report)
 
-                        attachment_malicious_total += stats.get("malicious", 0)
-                        attachment_suspicious_total += stats.get("suspicious", 0)
-
-                        result["attachments"].append({
-                            "filename": file["filename"],
-                            "sha256": file_hash,
-                            "malicious": stats.get("malicious", 0),
-                            "suspicious": stats.get("suspicious", 0),
-                            "harmless": stats.get("harmless", 0),
-                            "undetected": stats.get("undetected", 0),
-                        })
-                    else:
-                        result["attachments"].append({
-                            "filename": file["filename"],
-                            "sha256": file_hash,
-                            "message": "VirusTotal에 아직 등록되지 않은 파일"
-                        })
+                    result["attachments"].append({
+                        "filename": file["filename"],
+                        "malicious": stats.get("malicious", 0),
+                        "suspicious": stats.get("suspicious", 0),
+                        "harmless": stats.get("harmless", 0),
+                        "undetected": stats.get("undetected", 0),
+                    })
 
                 except Exception as e:
                     result["attachments"].append({
@@ -180,7 +167,7 @@ def analyze_mail(email_text: str, eml_bytes: bytes | None = None) -> dict:
         final_reason.append(f"{ai.get('rationale', '근거 없음')}")
         final_reason.append("")
 
-        # 최종 종합 판단
+        # 🔥 최종 종합 판단
         if file_malicious > 0 or url_malicious > 0:
             final = "다수 보안엔진에서 악성으로 탐지되어 매우 위험합니다."
         elif file_suspicious > 0 or url_suspicious > 0:
