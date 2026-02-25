@@ -3,7 +3,7 @@ from fastapi.responses import JSONResponse
 import uuid
 import tempfile
 
-from src.email_parser import parse_email_file
+from src.spam_email_poc.email_parser import parse_email_file
 from virustotal_api import calculate_sha256
 from vt_tasks import process_file_analysis, ANALYSIS_STORE
 
