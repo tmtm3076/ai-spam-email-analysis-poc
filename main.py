@@ -49,125 +49,224 @@ def home():
 <html>
 <head>
 <meta charset="UTF-8">
-<title>AI Email Security Analyzer</title>
+<title>Email Threat Intelligence Console</title>
 <style>
-body {
-    font-family: Arial;
-    background: #0f172a;
-    color: #e2e8f0;
-    text-align: center;
-    padding: 40px;
+
+:root{
+    --bg:#0b1220;
+    --card:#111827;
+    --border:#1f2937;
+    --primary:#2563eb;
+    --safe:#16a34a;
+    --danger:#dc2626;
+    --warning:#f59e0b;
+    --text:#e5e7eb;
+    --muted:#9ca3af;
 }
-.container {
-    background: #1e293b;
-    padding: 30px;
-    border-radius: 12px;
-    max-width: 1000px;
-    margin: auto;
+
+body{
+    margin:0;
+    font-family: 'Segoe UI', Arial;
+    background:var(--bg);
+    color:var(--text);
 }
-#drop-area {
-    border: 2px dashed #3b82f6;
-    padding: 30px;
-    border-radius: 10px;
-    cursor: pointer;
+
+.header{
+    padding:20px 40px;
+    background:#0f172a;
+    border-bottom:1px solid var(--border);
+    font-size:20px;
+    font-weight:600;
+    letter-spacing:1px;
 }
-table {
-    width: 100%;
-    border-collapse: collapse;
-    margin-top: 15px;
+
+.wrapper{
+    padding:40px;
+    max-width:1200px;
+    margin:auto;
 }
-th, td {
-    border: 1px solid #334155;
-    padding: 8px;
+
+.card{
+    background:var(--card);
+    border:1px solid var(--border);
+    border-radius:12px;
+    padding:25px;
+    margin-bottom:25px;
 }
-th {
-    background: #0f172a;
+
+.card h3{
+    margin-top:0;
+    margin-bottom:15px;
+    font-weight:600;
 }
-.bad { color:#dc2626; font-weight:bold; }
-.good { color:#16a34a; font-weight:bold; }
+
+.upload-box{
+    border:2px dashed var(--primary);
+    padding:40px;
+    text-align:center;
+    border-radius:10px;
+    cursor:pointer;
+    transition:0.3s;
+}
+
+.upload-box:hover{
+    background:#1e293b;
+}
+
+button{
+    background:var(--primary);
+    border:none;
+    padding:10px 18px;
+    border-radius:6px;
+    color:white;
+    cursor:pointer;
+    font-weight:500;
+}
+
+button:hover{
+    opacity:0.9;
+}
+
+.badge{
+    padding:4px 10px;
+    border-radius:20px;
+    font-size:12px;
+    font-weight:600;
+}
+
+.badge-safe{ background:var(--safe); }
+.badge-danger{ background:var(--danger); }
+.badge-warning{ background:var(--warning); }
+
+table{
+    width:100%;
+    border-collapse:collapse;
+}
+
+th, td{
+    padding:10px;
+    border-bottom:1px solid var(--border);
+    text-align:left;
+    font-size:14px;
+}
+
+th{
+    color:var(--muted);
+    font-weight:500;
+}
+
+tr:hover{
+    background:#1f2937;
+}
+
+.small{
+    font-size:12px;
+    color:var(--muted);
+}
+
 </style>
 </head>
 <body>
 
-<div class="container">
-<h2>🛡 AI Email Threat Intelligence Platform</h2>
+<div class="header">
+🛡 Email Threat Intelligence Console
+</div>
 
-<div id="drop-area">
-📂 클릭하여 이메일 파일 선택
+<div class="wrapper">
+
+<div class="card">
+<h3>📂 이메일 업로드</h3>
+
+<div class="upload-box" onclick="fileElem.click()">
+클릭하여 .eml 또는 .msg 파일 업로드
 <input type="file" id="fileElem" accept=".eml,.msg" style="display:none">
 </div>
 
-<button onclick="uploadFile()">🔍 분석 시작</button>
+<br>
+<button onclick="uploadFile()">AI 분석 실행</button>
 
-<h3>📊 AI 분석 요약</h3>
-<div id="aiSummary"></div>
+</div>
 
-<h3>📎 첨부파일 VT 분석</h3>
-<div id="vtTable"></div>
+<div class="card">
+<h3>📊 AI 위협 분석 결과</h3>
+<div id="aiSummary" class="small">분석 대기중...</div>
+</div>
+
+<div class="card">
+<h3>📎 첨부파일 위협 평판 (VirusTotal)</h3>
+<div id="vtTable" class="small">첨부파일 없음</div>
+</div>
 
 </div>
 
 <script>
-const dropArea = document.getElementById('drop-area');
-const fileElem = document.getElementById('fileElem');
+
 let selectedFile = null;
-let vtHashes = [];
 
-dropArea.addEventListener('click', () => fileElem.click());
-
-fileElem.addEventListener('change', (e) => {
+const fileElem = document.getElementById("fileElem");
+fileElem.addEventListener("change", e => {
     selectedFile = e.target.files[0];
 });
 
-async function uploadFile() {
-    if (!selectedFile) {
-        alert("파일을 선택하세요.");
+async function uploadFile(){
+
+    if(!selectedFile){
+        alert("파일을 선택하세요");
         return;
     }
+
+    document.getElementById("aiSummary").innerHTML="AI 분석 중...";
+    document.getElementById("vtTable").innerHTML="분석 중...";
 
     const formData = new FormData();
     formData.append("file", selectedFile);
 
-    document.getElementById("aiSummary").innerHTML = "분석 중...";
-    document.getElementById("vtTable").innerHTML = "";
-
-    const response = await fetch("/analyze", {
-        method: "POST",
-        body: formData
+    const res = await fetch("/analyze", {
+        method:"POST",
+        body:formData
     });
 
-    const data = await response.json();
+    const data = await res.json();
 
-    if (data.error) {
+    if(data.error){
         document.getElementById("aiSummary").innerHTML =
-            "<span class='bad'>오류: " + data.error + "</span>";
+            "<span class='badge badge-danger'>ERROR</span> " + data.error;
         return;
     }
 
-    renderAISummary(data.ai_body_analysis);
-    renderVTTable(data.attachments_vt || []);
+    renderAI(data.ai_body_analysis);
+    renderVT(data.attachments_vt || []);
 }
 
-function renderAISummary(ai) {
-    if (!ai) {
-        document.getElementById("aiSummary").innerHTML = "AI 분석 결과 없음";
+function renderAI(ai){
+
+    if(!ai){
+        document.getElementById("aiSummary").innerHTML="결과 없음";
         return;
     }
 
     let risk = ai.risk_level || "unknown";
-    let cls = risk === "high" ? "bad" : "good";
+    let badgeClass = "badge-safe";
 
-    let html = `
-        <p>위험도: <span class="${cls}">${risk}</span></p>
-        <p>요약: ${ai.summary || "-"}</p>
+    if(risk === "high") badgeClass = "badge-danger";
+    else if(risk === "medium") badgeClass = "badge-warning";
+
+    document.getElementById("aiSummary").innerHTML = `
+        <div>
+            위험도:
+            <span class="badge ${badgeClass}">
+                ${risk.toUpperCase()}
+            </span>
+        </div>
+        <br>
+        <div>${ai.summary || "-"}</div>
     `;
-
-    document.getElementById("aiSummary").innerHTML = html;
 }
 
-async function renderVTTable(files) {
-    if (files.length === 0) {
-        document.getElementById("vtTable").innerHTML = "첨부파일 없음";
+async function renderVT(files){
+
+    if(files.length === 0){
+        document.getElementById("vtTable").innerHTML="첨부파일 없음";
         return;
     }
 
@@ -175,22 +274,33 @@ async function renderVTTable(files) {
     <table>
         <tr>
             <th>파일명</th>
-            <th>SHA256</th>
+            <th>해시</th>
             <th>상태</th>
             <th>Malicious</th>
             <th>Suspicious</th>
         </tr>
     `;
 
-    for (let f of files) {
+    for(let f of files){
+
         const res = await fetch("/vt-result/" + f.sha256);
         const result = await res.json();
+
+        let statusBadge = "<span class='badge badge-warning'>PENDING</span>";
+
+        if(result.status === "completed"){
+            statusBadge = "<span class='badge badge-safe'>COMPLETED</span>";
+        }
+
+        if(result.status === "error"){
+            statusBadge = "<span class='badge badge-danger'>ERROR</span>";
+        }
 
         html += `
         <tr>
             <td>${f.filename}</td>
-            <td>${f.sha256.substring(0,12)}...</td>
-            <td>${result.status}</td>
+            <td class="small">${f.sha256.substring(0,16)}...</td>
+            <td>${statusBadge}</td>
             <td>${result.malicious ?? "-"}</td>
             <td>${result.suspicious ?? "-"}</td>
         </tr>
@@ -198,8 +308,10 @@ async function renderVTTable(files) {
     }
 
     html += "</table>";
+
     document.getElementById("vtTable").innerHTML = html;
 }
+
 </script>
 
 </body>
