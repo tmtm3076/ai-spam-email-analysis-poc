@@ -2,7 +2,6 @@ from fastapi import FastAPI, UploadFile, File, BackgroundTasks
 from fastapi.responses import HTMLResponse, JSONResponse
 import tempfile
 import os
-import hashlib
 
 from email_parser import parse_email_file
 from heuristics import score_email
@@ -19,11 +18,6 @@ app = FastAPI()
 # ==========================================================
 # 🔷 유틸
 # ==========================================================
-
-def calculate_sha256(file_bytes: bytes) -> str:
-    sha256 = hashlib.sha256()
-    sha256.update(file_bytes)
-    return sha256.hexdigest()
 
 
 def scan_url(url: str) -> dict:
@@ -431,11 +425,8 @@ async def analyze_email(
 
         email_record = parse_email_file(tmp_path)
 
-        # ✅ from_addr 안전 접근 (EmailRecord에서 'from'은 예약어라 별도 처리)
-        from_addr = getattr(email_record, "from_addr", None) \
-                    or getattr(email_record, "from_", None) \
-                    or email_record.__dict__.get("from", "") \
-                    or ""
+        # ✅ models.py 확인: from_addr = Field(alias="from") → 직접 접근 가능
+        from_addr = email_record.from_addr or ""
 
         # ==================================================
         # 1️⃣ 휴리스틱 분석
@@ -470,10 +461,12 @@ async def analyze_email(
         # ==================================================
         attachments_info = []
 
-        for att in getattr(email_record, "attachments", []):
-            att_bytes = att.get("content", b"")
-            att_hash  = att.get("sha256") or calculate_sha256(att_bytes)
-            att_name  = att.get("filename", "unknown")
+        # ✅ models.py 확인: attachments는 List[Attachment] Pydantic 모델
+        #    → att.get() 불가, att.content / att.sha256 / att.filename 으로 접근
+        for att in email_record.attachments:
+            att_bytes = att.content          # bytes
+            att_hash  = att.sha256           # 이미 email_parser에서 계산됨
+            att_name  = att.filename
 
             attachments_info.append({
                 "filename": att_name,
