@@ -305,11 +305,9 @@ function renderAI(ai) {
 
 function formatRationale(text) {
     if (!text) return "";
-    return "<span style='line-height:2.0'>" +
-        text
-            .replace(/([.!?])\s*(\d+[.)]\s)/g, "$1<br><br>$2")
-            .replace(/\n/g, "<br>")
-        + "</span>";
+    var lines = text.split("\n");
+    var joined = lines.join("<br>");
+    return "<span style='line-height:2.0'>" + joined + "</span>";
 }
 
 function renderURLs(urls) {
