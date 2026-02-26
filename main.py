@@ -232,7 +232,22 @@ fileElem.addEventListener("change", e => {
 });
 
 dropArea.addEventListener("drop", e=>{
-    selectedFile = e.dataTransfer.files[0];
+    e.preventDefault();
+    e.stopPropagation();
+
+    const files = e.dataTransfer.files;
+    if(!files || files.length === 0) return;
+
+    const f = files[0];
+    const name = f.name.toLowerCase();
+
+    if(!name.endsWith(".eml") && !name.endsWith(".msg")){
+        alert(".eml 또는 .msg 파일만 업로드 가능합니다.");
+        return;
+    }
+
+    // DataTransfer에서 새 File 객체로 복사 -> FormData 전송 시 누락 방지
+    selectedFile = new File([f], f.name, { type: f.type || "application/octet-stream" });
     updateFileStatus();
 });
 
@@ -306,8 +321,16 @@ function renderAI(ai){
         ${confidence}
         <br><br>
         ${ai.summary || "-"}
-        ${ai.rationale ? `<br><br><b>분석 근거:</b><br>${ai.rationale}` : ""}
+        ${ai.rationale ? `<br><br><b>분석 근거:</b><br>${formatRationale(ai.rationale)}` : ""}
     `;
+}
+
+function formatRationale(text){
+    if(!text) return "";
+    let formatted = text
+        .replace(/([.?!])\s+(\d+[.)]\s)/g, "$1<br><br>$2")
+        .replace(/\n/g, "<br>");
+    return `<span style="line-height:1.8">${formatted}</span>`;
 }
 
 function renderURLs(urls){
