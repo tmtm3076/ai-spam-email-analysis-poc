@@ -9,7 +9,6 @@ from llm import classify_with_llm
 from url_extractor import extract_urls
 from virustotal_api import submit_url, get_result, extract_stats
 
-# ✅ vt_tasks의 실제 구현체와 ANALYSIS_STORE를 공유
 from vt_tasks import process_file_analysis, ANALYSIS_STORE
 
 app = FastAPI()
@@ -19,19 +18,14 @@ app = FastAPI()
 # 🔷 유틸
 # ==========================================================
 
-
 def scan_url(url: str) -> dict:
-    """
-    ✅ virustotal_api.py에 scan_url이 없으므로
-       submit_url → get_result → extract_stats 흐름으로 직접 구현
-    """
     analysis_id = submit_url(url)
     result = get_result(analysis_id)
     return extract_stats(result)
 
 
 # ==========================================================
-# 🔷 1️⃣ GUI
+# 🔷 GUI
 # ==========================================================
 
 @app.get("/", response_class=HTMLResponse)
@@ -92,11 +86,11 @@ body{
     border-radius:10px;
     cursor:pointer;
     transition:0.3s;
-    position:relative;
 }
 
 .upload-box.dragover{
     background:#1e293b;
+    border-color:#60a5fa;
 }
 
 .file-status{
@@ -126,7 +120,7 @@ button:hover{ opacity:0.9; }
 
 .badge-safe{ background:var(--safe); }
 .badge-danger{ background:var(--danger); }
-.badge-warning{ background:var(--warning); }
+.badge-warning{ background:var(--warning); color:#000; }
 
 table{
     width:100%;
@@ -169,17 +163,16 @@ pre{
 <div class="card">
 <h3>📂 이메일 업로드</h3>
 
+<!-- ✅ input은 반드시 drop-area 바깥에 있어야 함
+     안에 있으면 input이 drag/drop 이벤트를 가로채서
+     브라우저가 파일을 직접 열어버림 -->
 <div id="drop-area" class="upload-box">
     📁 드래그 앤 드롭 또는 클릭하여 업로드<br>
     <small style="color:var(--muted)">.eml / .msg 파일 지원</small>
-    <input type="file" id="fileElem" accept=".eml,.msg"
-           style="position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:pointer;">
 </div>
+<input type="file" id="fileElem" accept=".eml,.msg" style="display:none">
 
-<div id="fileStatus" class="file-status">
-파일 미선택
-</div>
-
+<div id="fileStatus" class="file-status">파일 미선택</div>
 <br>
 <button onclick="uploadFile()">AI 분석 실행</button>
 </div>
@@ -213,32 +206,31 @@ const dropArea = document.getElementById("drop-area");
 const fileElem = document.getElementById("fileElem");
 const fileStatus = document.getElementById("fileStatus");
 
-// 클릭으로 파일 선택
-fileElem.addEventListener("change", e => {
-    const f = e.target.files[0];
-    if(f) setFile(f);
-});
-
-// ✅ dropArea 클릭 시 파일 선택 창 열기
+// 클릭 → 파일 탐색기 오픈
 dropArea.addEventListener("click", () => fileElem.click());
 
+// 파일 선택 완료
+fileElem.addEventListener("change", e => {
+    const f = e.target.files[0];
+    if (f) setFile(f);
+});
+
 // 드래그 하이라이트
-dropArea.addEventListener("dragenter", e => { e.preventDefault(); e.stopPropagation(); dropArea.classList.add("dragover"); });
-dropArea.addEventListener("dragover",  e => { e.preventDefault(); e.stopPropagation(); dropArea.classList.add("dragover"); });
-dropArea.addEventListener("dragleave", e => { e.preventDefault(); e.stopPropagation(); dropArea.classList.remove("dragover"); });
+dropArea.addEventListener("dragenter", e => { e.preventDefault(); dropArea.classList.add("dragover"); });
+dropArea.addEventListener("dragover",  e => { e.preventDefault(); dropArea.classList.add("dragover"); });
+dropArea.addEventListener("dragleave", e => { dropArea.classList.remove("dragover"); });
 
 // 드롭 처리
 dropArea.addEventListener("drop", e => {
     e.preventDefault();
-    e.stopPropagation();
     dropArea.classList.remove("dragover");
     const files = e.dataTransfer.files;
-    if(files && files.length > 0) setFile(files[0]);
+    if (files && files.length > 0) setFile(files[0]);
 });
 
-function setFile(f){
+function setFile(f) {
     const name = f.name.toLowerCase();
-    if(!name.endsWith(".eml") && !name.endsWith(".msg")){
+    if (!name.endsWith(".eml") && !name.endsWith(".msg")) {
         alert(".eml 또는 .msg 파일만 업로드 가능합니다.");
         selectedFile = null;
         updateFileStatus();
@@ -248,165 +240,125 @@ function setFile(f){
     updateFileStatus();
 }
 
-function updateFileStatus(){
-    if(!selectedFile){
-        fileStatus.innerHTML="파일 미선택";
+function updateFileStatus() {
+    if (!selectedFile) {
+        fileStatus.innerHTML = "파일 미선택";
         return;
     }
-    fileStatus.innerHTML=
-        "<span class='badge badge-safe'>업로드 완료</span> "
-        + selectedFile.name;
+    fileStatus.innerHTML =
+        "<span class='badge badge-safe'>선택완료</span> " + selectedFile.name;
 }
 
-async function uploadFile(){
-    if(!selectedFile){
+async function uploadFile() {
+    if (!selectedFile) {
         alert("파일을 선택하세요");
         return;
     }
 
-    document.getElementById("aiSummary").innerHTML="AI 분석 중...";
-    document.getElementById("urlTable").innerHTML="분석 중...";
-    document.getElementById("vtTable").innerHTML="분석 중...";
-    document.getElementById("rawJson").textContent="-";
+    document.getElementById("aiSummary").innerHTML = "AI 분석 중...";
+    document.getElementById("urlTable").innerHTML = "분석 중...";
+    document.getElementById("vtTable").innerHTML = "분석 중...";
+    document.getElementById("rawJson").textContent = "-";
 
     const formData = new FormData();
     formData.append("file", selectedFile);
 
-    const res = await fetch("/analyze",{
-        method:"POST",
-        body:formData
-    });
-
+    const res = await fetch("/analyze", { method: "POST", body: formData });
     const data = await res.json();
 
-    document.getElementById("rawJson").textContent =
-        JSON.stringify(data,null,2);
+    document.getElementById("rawJson").textContent = JSON.stringify(data, null, 2);
 
-    if(data.error){
+    if (data.error) {
         document.getElementById("aiSummary").innerHTML =
             "<span class='badge badge-danger'>ERROR</span> " + data.error;
         return;
     }
 
-    // ✅ ai_body_analysis 키로 통일된 응답 처리
     renderAI(data.ai_body_analysis);
     renderURLs(data.url_analysis || []);
     renderVT(data.attachments_vt || []);
 }
 
-function renderAI(ai){
-    if(!ai){
-        document.getElementById("aiSummary").innerHTML="결과 없음";
+function renderAI(ai) {
+    if (!ai) {
+        document.getElementById("aiSummary").innerHTML = "결과 없음";
         return;
     }
 
     let risk = ai.risk_level || "unknown";
     let badgeClass = "badge-safe";
+    if (risk === "high")   badgeClass = "badge-danger";
+    else if (risk === "medium") badgeClass = "badge-warning";
 
-    if(risk === "high") badgeClass="badge-danger";
-    else if(risk === "medium") badgeClass="badge-warning";
-
-    const confidence = ai.confidence !== undefined
+    const confidence = (ai.confidence !== undefined)
         ? `<br><small style="color:var(--muted)">신뢰도: ${(ai.confidence * 100).toFixed(0)}%</small>`
         : "";
 
     document.getElementById("aiSummary").innerHTML = `
-        위험도:
-        <span class="badge ${badgeClass}">
-            ${risk.toUpperCase()}
-        </span>
+        위험도: <span class="badge ${badgeClass}">${risk.toUpperCase()}</span>
         ${confidence}
         <br><br>
         ${ai.summary || "-"}
-        ${ai.rationale ? `<br><br><b>분석 근거:</b><br>${formatRationale(ai.rationale)}` : ""}
+        ${ai.rationale ? "<br><br><b>분석 근거:</b><br>" + formatRationale(ai.rationale) : ""}
     `;
 }
 
-function formatRationale(text){
-    if(!text) return "";
-    let formatted = text
-        .replace(/([.?!])\s+(\d+[.)]\s)/g, "$1<br><br>$2")
-        .replace(/\n/g, "<br>");
-    return `<span style="line-height:1.8">${formatted}</span>`;
+function formatRationale(text) {
+    if (!text) return "";
+    return "<span style='line-height:2.0'>" +
+        text
+            .replace(/([.!?])\s*(\d+[.)]\s)/g, "$1<br><br>$2")
+            .replace(/\n/g, "<br>")
+        + "</span>";
 }
 
-function renderURLs(urls){
-    if(urls.length===0){
-        document.getElementById("urlTable").innerHTML="URL 없음";
+function renderURLs(urls) {
+    if (urls.length === 0) {
+        document.getElementById("urlTable").innerHTML = "URL 없음";
         return;
     }
 
-    let html = `
-    <table>
-        <tr>
-            <th>URL</th>
-            <th>Malicious</th>
-            <th>Suspicious</th>
-            <th>Harmless</th>
-        </tr>
-    `;
-
-    for(let u of urls){
+    let html = "<table><tr><th>URL</th><th>Malicious</th><th>Suspicious</th><th>Harmless</th></tr>";
+    for (let u of urls) {
         const vt = u.vt_result || {};
         const err = u.error;
-        html+=`
-        <tr>
-            <td style="word-break:break-all">${u.url}</td>
-            <td>${err ? '<span class="badge badge-warning">ERROR</span>' : (vt.malicious ?? "-")}</td>
-            <td>${err ? "-" : (vt.suspicious ?? "-")}</td>
-            <td>${err ? "-" : (vt.harmless ?? "-")}</td>
-        </tr>
-        `;
+        html += "<tr>"
+            + "<td style='word-break:break-all'>" + u.url + "</td>"
+            + "<td>" + (err ? "<span class='badge badge-warning'>ERROR</span>" : (vt.malicious ?? "-")) + "</td>"
+            + "<td>" + (err ? "-" : (vt.suspicious ?? "-")) + "</td>"
+            + "<td>" + (err ? "-" : (vt.harmless ?? "-")) + "</td>"
+            + "</tr>";
     }
-
-    html+="</table>";
-    document.getElementById("urlTable").innerHTML=html;
+    html += "</table>";
+    document.getElementById("urlTable").innerHTML = html;
 }
 
-async function renderVT(files){
-    if(files.length===0){
-        document.getElementById("vtTable").innerHTML="첨부파일 없음";
+async function renderVT(files) {
+    if (files.length === 0) {
+        document.getElementById("vtTable").innerHTML = "첨부파일 없음";
         return;
     }
 
-    let html = `
-    <table>
-        <tr>
-            <th>파일명</th>
-            <th>SHA256</th>
-            <th>상태</th>
-            <th>Malicious</th>
-            <th>Suspicious</th>
-        </tr>
-    `;
-
-    for(let f of files){
+    let html = "<table><tr><th>파일명</th><th>SHA256</th><th>상태</th><th>Malicious</th><th>Suspicious</th></tr>";
+    for (let f of files) {
         const res = await fetch("/vt-result/" + f.sha256);
         const result = await res.json();
 
-        let badge="<span class='badge badge-warning'>PENDING</span>";
-
-        if(result.status==="completed")
-            badge="<span class='badge badge-safe'>COMPLETED</span>";
-
-        if(result.status==="error")
-            badge="<span class='badge badge-danger'>ERROR</span>";
+        let badge = "<span class='badge badge-warning'>PENDING</span>";
+        if (result.status === "completed") badge = "<span class='badge badge-safe'>COMPLETED</span>";
+        if (result.status === "error")     badge = "<span class='badge badge-danger'>ERROR</span>";
 
         const stats = result.stats || {};
-
-        html+=`
-        <tr>
-            <td>${f.filename}</td>
-            <td>${f.sha256.substring(0,16)}...</td>
-            <td>${badge}</td>
-            <td>${stats.malicious ?? result.malicious ?? "-"}</td>
-            <td>${stats.suspicious ?? result.suspicious ?? "-"}</td>
-        </tr>
-        `;
+        html += "<tr>"
+            + "<td>" + f.filename + "</td>"
+            + "<td>" + f.sha256.substring(0, 16) + "...</td>"
+            + "<td>" + badge + "</td>"
+            + "<td>" + (stats.malicious ?? result.malicious ?? "-") + "</td>"
+            + "<td>" + (stats.suspicious ?? result.suspicious ?? "-") + "</td>"
+            + "</tr>";
     }
-
-    html+="</table>";
-    document.getElementById("vtTable").innerHTML=html;
+    html += "</table>";
+    document.getElementById("vtTable").innerHTML = html;
 }
 
 </script>
@@ -445,73 +397,41 @@ async def analyze_email(
 
         email_record = parse_email_file(tmp_path)
 
-        # ✅ models.py 확인: from_addr = Field(alias="from") → 직접 접근 가능
         from_addr = email_record.from_addr or ""
 
-        # ==================================================
         # 1️⃣ 휴리스틱 분석
-        # ==================================================
         heuristic_result = score_email(email_record)
 
-        # ==================================================
         # 2️⃣ URL 추출 + VT URL 평판 분석
-        # ==================================================
-        # ✅ body_text가 None일 경우 안전 처리
         body_text = email_record.body_text or ""
         urls = extract_urls(body_text)
 
         url_results = []
-
         for url in urls[:5]:
             try:
                 vt_res = scan_url(url)
-                url_results.append({
-                    "url": url,
-                    "vt_result": vt_res
-                })
+                url_results.append({"url": url, "vt_result": vt_res})
             except Exception as e:
-                url_results.append({
-                    "url": url,
-                    "vt_result": None,
-                    "error": str(e)
-                })
+                url_results.append({"url": url, "vt_result": None, "error": str(e)})
 
-        # ==================================================
-        # 3️⃣ 첨부파일 VT 분석 (Background Task로 실행)
-        # ==================================================
+        # 3️⃣ 첨부파일 VT 분석 (Background Task)
         attachments_info = []
-
-        # ✅ models.py 확인: attachments는 List[Attachment] Pydantic 모델
-        #    → att.get() 불가, att.content / att.sha256 / att.filename 으로 접근
         for att in email_record.attachments:
-            att_bytes = att.content          # bytes
-            att_hash  = att.sha256           # 이미 email_parser에서 계산됨
+            att_bytes = att.content   # Pydantic Attachment 모델 속성 접근
+            att_hash  = att.sha256
             att_name  = att.filename
 
-            attachments_info.append({
-                "filename": att_name,
-                "sha256": att_hash,
-            })
+            attachments_info.append({"filename": att_name, "sha256": att_hash})
 
-            # ✅ vt_tasks.py의 실제 process_file_analysis 연결
             if att_hash not in ANALYSIS_STORE:
                 ANALYSIS_STORE[att_hash] = {"status": "pending"}
-                background_tasks.add_task(
-                    process_file_analysis,
-                    att_hash,
-                    att_bytes
-                )
+                background_tasks.add_task(process_file_analysis, att_hash, att_bytes)
 
-        # ==================================================
         # 4️⃣ LLM 정밀 분석
-        # ==================================================
         llm_result = classify_with_llm(email_record)
 
-        # ==================================================
         # 종합 위험도 판정
-        # ==================================================
         risk_level = "low"
-
         if heuristic_result.score >= 70:
             risk_level = "high"
         elif heuristic_result.score >= 40:
@@ -530,8 +450,6 @@ async def analyze_email(
 
         return {
             "overall_label": overall_label,
-
-            # ✅ 프론트엔드 renderAI()가 참조하는 키로 통일
             "ai_body_analysis": {
                 "risk_level": risk_level,
                 "label": llm_result.get("label", "unknown"),
@@ -539,15 +457,12 @@ async def analyze_email(
                 "summary": f"[{llm_result.get('label','unknown').upper()}] 휴리스틱 점수: {heuristic_result.score}/100",
                 "rationale": llm_result.get("rationale", ""),
             },
-
             "heuristic_analysis": {
                 "score": heuristic_result.score,
                 "flags": heuristic_result.flags,
-                "details": heuristic_result.details
+                "details": heuristic_result.details,
             },
-
             "url_analysis": url_results,
-
             "attachments_vt": attachments_info,
         }
 
@@ -568,8 +483,4 @@ async def analyze_email(
 
 @app.get("/vt-result/{file_hash}")
 def get_vt_result(file_hash: str):
-    """
-    ✅ vt_tasks.ANALYSIS_STORE를 직접 참조하므로
-       background_tasks 완료 후 실제 결과 반환됨
-    """
     return ANALYSIS_STORE.get(file_hash, {"status": "not_found"})
