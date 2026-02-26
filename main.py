@@ -92,6 +92,7 @@ body{
     border-radius:10px;
     cursor:pointer;
     transition:0.3s;
+    position:relative;
 }
 
 .upload-box.dragover{
@@ -168,11 +169,12 @@ pre{
 <div class="card">
 <h3>📂 이메일 업로드</h3>
 
-<input type="file" id="fileElem" accept=".eml,.msg" style="display:none">
-<label for="fileElem" id="drop-area" class="upload-box">
+<div id="drop-area" class="upload-box">
     📁 드래그 앤 드롭 또는 클릭하여 업로드<br>
     <small style="color:var(--muted)">.eml / .msg 파일 지원</small>
-</label>
+    <input type="file" id="fileElem" accept=".eml,.msg"
+           style="position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:pointer;">
+</div>
 
 <div id="fileStatus" class="file-status">
 파일 미선택
@@ -211,27 +213,24 @@ const dropArea = document.getElementById("drop-area");
 const fileElem = document.getElementById("fileElem");
 const fileStatus = document.getElementById("fileStatus");
 
-// 파일 선택 완료 (label for="fileElem" 이 클릭을 자동 처리)
+// 클릭으로 파일 선택
 fileElem.addEventListener("change", e => {
     const f = e.target.files[0];
     if(f) setFile(f);
 });
 
-// 드래그 진입/이동 시 하이라이트
-dropArea.addEventListener("dragenter", e => { e.preventDefault(); dropArea.classList.add("dragover"); });
-dropArea.addEventListener("dragover",  e => { e.preventDefault(); dropArea.classList.add("dragover"); });
-dropArea.addEventListener("dragleave", e => { e.preventDefault(); dropArea.classList.remove("dragover"); });
+// 드래그 하이라이트
+dropArea.addEventListener("dragenter", e => { e.preventDefault(); e.stopPropagation(); dropArea.classList.add("dragover"); });
+dropArea.addEventListener("dragover",  e => { e.preventDefault(); e.stopPropagation(); dropArea.classList.add("dragover"); });
+dropArea.addEventListener("dragleave", e => { e.preventDefault(); e.stopPropagation(); dropArea.classList.remove("dragover"); });
 
-// 드롭 처리 (충돌 없도록 단일 리스너)
+// 드롭 처리
 dropArea.addEventListener("drop", e => {
     e.preventDefault();
     e.stopPropagation();
     dropArea.classList.remove("dragover");
-
     const files = e.dataTransfer.files;
-    if(!files || files.length === 0) return;
-
-    setFile(files[0]);
+    if(files && files.length > 0) setFile(files[0]);
 });
 
 function setFile(f){
