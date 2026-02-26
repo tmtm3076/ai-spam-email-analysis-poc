@@ -3,6 +3,8 @@ from fastapi.responses import HTMLResponse, JSONResponse
 import tempfile
 import os
 import hashlib
+import asyncio
+from concurrent.futures import ThreadPoolExecutor  # ✅ 추가
 
 from email_parser import parse_email_file
 from heuristics import score_email
@@ -14,6 +16,9 @@ app = FastAPI()
 
 ANALYSIS_STORE = {}
 
+# ✅ 전용 executor — 스레드 고갈 방지
+VT_EXECUTOR = ThreadPoolExecutor(max_workers=10)
+
 # ==========================================================
 # 🔷 유틸
 # ==========================================================
@@ -24,7 +29,6 @@ def calculate_sha256(file_bytes: bytes) -> str:
     return sha256.hexdigest()
 
 
-# ✅ virustotal_api.py에 scan_url 없음 → submit_url → get_result → extract_stats 로 직접 구현
 def scan_url(url: str) -> dict:
     analysis_id = submit_url(url)
     result = get_result(analysis_id)
@@ -285,23 +289,70 @@ async def analyze_email(
 
         email_record = parse_email_file(tmp_path)
 
-        # 1️⃣ 휴리스틱 분석
+        # 1️⃣ 휴리스틱 분석 (빠르므로 동기 유지)
         heuristic_result = score_email(email_record)
 
-        # 2️⃣ URL 추출 + VT URL 평판 분석
+        # 2️⃣ URL 추출
         body_text = email_record.body_text or ""
         urls = extract_urls(body_text)
 
-        url_results = []
-        for url in urls[:5]:
+        # ✅ URL 분석 비동기 래퍼
+        async def analyze_url_async(url):
+            loop = asyncio.get_event_loop()
             try:
-                vt_res = scan_url(url)
-                url_results.append({"url": url, "vt_result": vt_res})
+                vt_res = await loop.run_in_executor(VT_EXECUTOR, scan_url, url)
+                return {"url": url, "vt_result": vt_res}
             except Exception as e:
-                url_results.append({"url": url, "vt_result": None, "error": str(e)})
+                return {"url": url, "vt_result": None, "error": str(e)}
 
-        # 3️⃣ LLM 정밀 분석
-        llm_result = classify_with_llm(email_record)
+        # ✅ 파일 분석 비동기 래퍼
+        async def analyze_attachment_async(att):
+            filename_att = att["filename"] if isinstance(att, dict) else att.filename
+            sha256       = att["sha256"]   if isinstance(att, dict) else att.sha256
+            file_bytes   = att["content"]  if isinstance(att, dict) else att.content
+
+            loop = asyncio.get_event_loop()
+            try:
+                vt_report = await loop.run_in_executor(VT_EXECUTOR, analyze_file_with_vt, file_bytes, filename_att)
+                stats = extract_file_stats(vt_report)
+                ANALYSIS_STORE[sha256] = {
+                    "status":     "completed",
+                    "malicious":  stats["malicious"],
+                    "suspicious": stats["suspicious"],
+                    "harmless":   stats["harmless"],
+                    "undetected": stats["undetected"],
+                }
+            except Exception as e:
+                ANALYSIS_STORE[sha256] = {"status": "error", "message": str(e)}
+
+            return {"filename": filename_att, "sha256": sha256}
+
+        # 3️⃣ LLM + URL + 파일 분석 동시 실행
+        loop = asyncio.get_event_loop()
+        llm_task  = loop.run_in_executor(VT_EXECUTOR, classify_with_llm, email_record)
+        url_tasks = [analyze_url_async(url) for url in urls[:5]]
+        att_tasks = [analyze_attachment_async(att) for att in email_record.attachments]
+
+        # ✅ return_exceptions=True — 한 태스크 실패해도 나머지 결과 보존
+        llm_result, url_results, attachments_vt = await asyncio.gather(
+            llm_task,
+            asyncio.gather(*url_tasks),
+            asyncio.gather(*att_tasks),
+            return_exceptions=True
+        )
+
+        # ✅ 각 태스크 예외 발생 시 기본값으로 대체
+        if isinstance(llm_result, Exception):
+            llm_result = {"label": "unknown", "confidence": 0, "rationale": f"LLM 분석 실패: {str(llm_result)}"}
+
+        if isinstance(url_results, Exception):
+            url_results = []
+
+        if isinstance(attachments_vt, Exception):
+            attachments_vt = []
+
+        url_results    = list(url_results)
+        attachments_vt = list(attachments_vt)
 
         # 종합 위험도 판정
         risk_level = "low"
@@ -321,38 +372,13 @@ async def analyze_email(
         elif risk_level == "medium":
             overall_label = "spam"
 
-        # ✅ attachments: Pydantic Attachment 모델 → .filename .sha256 속성 접근
-        attachments_vt = []
-        for att in email_record.attachments:
-            try:
-                file_bytes = att.content  # Attachment 모델의 실제 필드명 확인 필요
-                vt_report = analyze_file_with_vt(file_bytes, att.filename)
-                stats = extract_file_stats(vt_report)
-                ANALYSIS_STORE[att.sha256] = {
-                    "status":     "completed",
-                    "malicious":  stats["malicious"],
-                    "suspicious": stats["suspicious"],
-                    "harmless":   stats["harmless"],
-                    "undetected": stats["undetected"],
-                }
-                attachments_vt.append({
-                    "filename": att.filename,
-                    "sha256":   att.sha256,
-                })
-            except Exception as e:
-                ANALYSIS_STORE[att.sha256] = {"status": "error", "message": str(e)}
-                attachments_vt.append({
-                    "filename": att.filename,
-                    "sha256":   att.sha256,
-                })
-
         return {
             "overall_label": overall_label,
             "ai_body_analysis": {
                 "risk_level": risk_level,
                 "label":      llm_result.get("label", "unknown"),
                 "confidence": llm_result.get("confidence", 0),
-                "summary":    "[" + llm_result.get("label","unknown").upper() + "] 휴리스틱 점수: " + str(heuristic_result.score) + "/100",
+                "summary":    "[" + llm_result.get("label", "unknown").upper() + "] 휴리스틱 점수: " + str(heuristic_result.score) + "/100",
                 "rationale":  llm_result.get("rationale", ""),
             },
             "heuristic_analysis": {
@@ -360,8 +386,8 @@ async def analyze_email(
                 "flags":   heuristic_result.flags,
                 "details": heuristic_result.details,
             },
-            "url_analysis":    url_results,
-            "attachments_vt":  attachments_vt,
+            "url_analysis":   url_results,
+            "attachments_vt": attachments_vt,
         }
 
     except Exception as e:
