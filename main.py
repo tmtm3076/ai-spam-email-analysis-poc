@@ -210,46 +210,46 @@ const dropArea = document.getElementById("drop-area");
 const fileElem = document.getElementById("fileElem");
 const fileStatus = document.getElementById("fileStatus");
 
-dropArea.addEventListener("click", () => fileElem.click());
+// 클릭 업로드: input 직접 클릭, 버블링 방지
+dropArea.addEventListener("click", (e) => {
+    if(e.target === fileElem) return;
+    fileElem.click();
+});
 
+// 파일 선택 완료
 fileElem.addEventListener("change", e => {
-    selectedFile = e.target.files[0];
-    updateFileStatus();
+    const f = e.target.files[0];
+    if(f) setFile(f);
 });
 
-["dragenter","dragover"].forEach(evt=>{
-    dropArea.addEventListener(evt, e=>{
-        e.preventDefault();
-        dropArea.classList.add("dragover");
-    });
-});
+// 드래그 진입/이동 시 하이라이트
+dropArea.addEventListener("dragenter", e => { e.preventDefault(); dropArea.classList.add("dragover"); });
+dropArea.addEventListener("dragover",  e => { e.preventDefault(); dropArea.classList.add("dragover"); });
+dropArea.addEventListener("dragleave", e => { e.preventDefault(); dropArea.classList.remove("dragover"); });
 
-["dragleave","drop"].forEach(evt=>{
-    dropArea.addEventListener(evt, e=>{
-        e.preventDefault();
-        dropArea.classList.remove("dragover");
-    });
-});
-
-dropArea.addEventListener("drop", e=>{
+// 드롭 처리 (충돌 없도록 단일 리스너)
+dropArea.addEventListener("drop", e => {
     e.preventDefault();
     e.stopPropagation();
+    dropArea.classList.remove("dragover");
 
     const files = e.dataTransfer.files;
     if(!files || files.length === 0) return;
 
-    const f = files[0];
-    const name = f.name.toLowerCase();
+    setFile(files[0]);
+});
 
+function setFile(f){
+    const name = f.name.toLowerCase();
     if(!name.endsWith(".eml") && !name.endsWith(".msg")){
         alert(".eml 또는 .msg 파일만 업로드 가능합니다.");
+        selectedFile = null;
+        updateFileStatus();
         return;
     }
-
-    // DataTransfer에서 새 File 객체로 복사 -> FormData 전송 시 누락 방지
-    selectedFile = new File([f], f.name, { type: f.type || "application/octet-stream" });
+    selectedFile = f;
     updateFileStatus();
-});
+}
 
 function updateFileStatus(){
     if(!selectedFile){
