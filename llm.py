@@ -1,15 +1,16 @@
 import os
 import json
 import re
-from google import genai
-from google.genai import types
+import google.generativeai as genai
 
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if not GEMINI_API_KEY:
     raise ValueError("GEMINI_API_KEY is not set")
 
-client = genai.Client(api_key=GEMINI_API_KEY)
+genai.configure(api_key=GEMINI_API_KEY)
+
+model = genai.GenerativeModel("gemini-2.5-flash")
 
 
 def safe_json_parse(text: str) -> dict:
@@ -24,7 +25,8 @@ def safe_json_parse(text: str) -> dict:
 
 def classify_with_llm(email):
 
-    prompt = f"""당신은 침해사고 대응을 수행하는 보안 전문가입니다.
+    prompt = f"""
+당신은 침해사고 대응을 수행하는 보안 전문가입니다.
 감정적 표현 없이, 기술적 근거 중심으로 단계별 분석하십시오.
 반드시 모든 출력은 한국어로 작성하십시오.
 반드시 JSON만 출력하십시오.
@@ -44,24 +46,25 @@ JSON 외 텍스트 출력 금지.
 """
 
     try:
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt,
-            config=types.GenerateContentConfig(temperature=0.2),
+        response = model.generate_content(
+            prompt,
+            generation_config={
+                "temperature": 0.2
+            }
         )
 
         text = response.text.strip()
         parsed = safe_json_parse(text)
 
         return {
-            "label":      parsed.get("label", "unknown"),
+            "label": parsed.get("label", "unknown"),
             "confidence": float(parsed.get("confidence", 0)),
-            "rationale":  parsed.get("rationale", "분석 근거 없음"),
+            "rationale": parsed.get("rationale", "분석 근거 없음")
         }
 
     except Exception as e:
         return {
-            "label":      "unknown",
+            "label": "unknown",
             "confidence": 0,
-            "rationale":  f"Gemini 분석 실패: {str(e)}",
+            "rationale": f"Gemini 분석 실패: {str(e)}"
         }
