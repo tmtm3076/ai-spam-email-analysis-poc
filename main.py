@@ -8,35 +8,38 @@ from email_parser import parse_email_file
 from heuristics import score_email
 from llm import classify_with_llm
 from url_extractor import extract_urls
-from virustotal_api import scan_url
+from virustotal_api import submit_url, get_result, extract_stats
+
+# ✅ vt_tasks의 실제 구현체와 ANALYSIS_STORE를 공유
+from vt_tasks import process_file_analysis, ANALYSIS_STORE
 
 app = FastAPI()
 
-ANALYSIS_STORE = {}
 
 # ==========================================================
 # 🔷 유틸
 # ==========================================================
+
 def calculate_sha256(file_bytes: bytes) -> str:
     sha256 = hashlib.sha256()
     sha256.update(file_bytes)
     return sha256.hexdigest()
 
 
-def process_file_analysis(file_hash: str, file_bytes: bytes):
-    # 샘플 파일 분석 (실제 환경에서 VT file API 연결)
-    ANALYSIS_STORE[file_hash] = {
-        "status": "completed",
-        "malicious": 0,
-        "suspicious": 0
-    }
-
-
+def scan_url(url: str) -> dict:
+    """
+    ✅ virustotal_api.py에 scan_url이 없으므로
+       submit_url → get_result → extract_stats 흐름으로 직접 구현
+    """
+    analysis_id = submit_url(url)
+    result = get_result(analysis_id)
+    return extract_stats(result)
 
 
 # ==========================================================
 # 🔷 1️⃣ GUI
 # ==========================================================
+
 @app.get("/", response_class=HTMLResponse)
 def home():
     return """
@@ -158,7 +161,6 @@ pre{
     font-size:12px;
     overflow:auto;
 }
-
 </style>
 </head>
 <body>
@@ -183,12 +185,16 @@ pre{
 
 <br>
 <button onclick="uploadFile()">AI 분석 실행</button>
-
 </div>
 
 <div class="card">
 <h3>📊 AI 위협 분석 결과</h3>
 <div id="aiSummary">분석 대기중...</div>
+</div>
+
+<div class="card">
+<h3>🔗 URL 위협 평판 (VirusTotal)</h3>
+<div id="urlTable">URL 없음</div>
 </div>
 
 <div class="card">
@@ -241,20 +247,19 @@ function updateFileStatus(){
         fileStatus.innerHTML="파일 미선택";
         return;
     }
-
     fileStatus.innerHTML=
         "<span class='badge badge-safe'>업로드 완료</span> "
         + selectedFile.name;
 }
 
 async function uploadFile(){
-
     if(!selectedFile){
         alert("파일을 선택하세요");
         return;
     }
 
     document.getElementById("aiSummary").innerHTML="AI 분석 중...";
+    document.getElementById("urlTable").innerHTML="분석 중...";
     document.getElementById("vtTable").innerHTML="분석 중...";
     document.getElementById("rawJson").textContent="-";
 
@@ -277,12 +282,13 @@ async function uploadFile(){
         return;
     }
 
+    // ✅ ai_body_analysis 키로 통일된 응답 처리
     renderAI(data.ai_body_analysis);
+    renderURLs(data.url_analysis || []);
     renderVT(data.attachments_vt || []);
 }
 
 function renderAI(ai){
-
     if(!ai){
         document.getElementById("aiSummary").innerHTML="결과 없음";
         return;
@@ -294,18 +300,56 @@ function renderAI(ai){
     if(risk === "high") badgeClass="badge-danger";
     else if(risk === "medium") badgeClass="badge-warning";
 
+    const confidence = ai.confidence !== undefined
+        ? `<br><small style="color:var(--muted)">신뢰도: ${(ai.confidence * 100).toFixed(0)}%</small>`
+        : "";
+
     document.getElementById("aiSummary").innerHTML = `
         위험도:
         <span class="badge ${badgeClass}">
             ${risk.toUpperCase()}
         </span>
+        ${confidence}
         <br><br>
         ${ai.summary || "-"}
+        ${ai.rationale ? `<br><br><b>분석 근거:</b><br>${ai.rationale}` : ""}
     `;
 }
 
-async function renderVT(files){
+function renderURLs(urls){
+    if(urls.length===0){
+        document.getElementById("urlTable").innerHTML="URL 없음";
+        return;
+    }
 
+    let html = `
+    <table>
+        <tr>
+            <th>URL</th>
+            <th>Malicious</th>
+            <th>Suspicious</th>
+            <th>Harmless</th>
+        </tr>
+    `;
+
+    for(let u of urls){
+        const vt = u.vt_result || {};
+        const err = u.error;
+        html+=`
+        <tr>
+            <td style="word-break:break-all">${u.url}</td>
+            <td>${err ? '<span class="badge badge-warning">ERROR</span>' : (vt.malicious ?? "-")}</td>
+            <td>${err ? "-" : (vt.suspicious ?? "-")}</td>
+            <td>${err ? "-" : (vt.harmless ?? "-")}</td>
+        </tr>
+        `;
+    }
+
+    html+="</table>";
+    document.getElementById("urlTable").innerHTML=html;
+}
+
+async function renderVT(files){
     if(files.length===0){
         document.getElementById("vtTable").innerHTML="첨부파일 없음";
         return;
@@ -323,7 +367,6 @@ async function renderVT(files){
     `;
 
     for(let f of files){
-
         const res = await fetch("/vt-result/" + f.sha256);
         const result = await res.json();
 
@@ -335,19 +378,20 @@ async function renderVT(files){
         if(result.status==="error")
             badge="<span class='badge badge-danger'>ERROR</span>";
 
+        const stats = result.stats || {};
+
         html+=`
         <tr>
             <td>${f.filename}</td>
             <td>${f.sha256.substring(0,16)}...</td>
             <td>${badge}</td>
-            <td>${result.malicious ?? "-"}</td>
-            <td>${result.suspicious ?? "-"}</td>
+            <td>${stats.malicious ?? result.malicious ?? "-"}</td>
+            <td>${stats.suspicious ?? result.suspicious ?? "-"}</td>
         </tr>
         `;
     }
 
     html+="</table>";
-
     document.getElementById("vtTable").innerHTML=html;
 }
 
@@ -356,15 +400,17 @@ async function renderVT(files){
 </body>
 </html>
 """
+
+
 # ==========================================================
 # 🔷 이메일 통합 분석 API
 # ==========================================================
+
 @app.post("/analyze")
 async def analyze_email(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...)
 ):
-
     filename = file.filename.lower()
 
     if not (filename.endswith(".eml") or filename.endswith(".msg")):
@@ -373,13 +419,23 @@ async def analyze_email(
             content={"error": "Only .eml or .msg files are supported"}
         )
 
+    tmp_path = None
+
     try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(filename)[1]) as tmp:
+        suffix = os.path.splitext(filename)[1]
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             content = await file.read()
             tmp.write(content)
             tmp_path = tmp.name
 
         email_record = parse_email_file(tmp_path)
+
+        # ✅ from_addr 안전 접근 (EmailRecord에서 'from'은 예약어라 별도 처리)
+        from_addr = getattr(email_record, "from_addr", None) \
+                    or getattr(email_record, "from_", None) \
+                    or email_record.__dict__.get("from", "") \
+                    or ""
 
         # ==================================================
         # 1️⃣ 휴리스틱 분석
@@ -389,11 +445,13 @@ async def analyze_email(
         # ==================================================
         # 2️⃣ URL 추출 + VT URL 평판 분석
         # ==================================================
-        urls = extract_urls(email_record.body_text)
+        # ✅ body_text가 None일 경우 안전 처리
+        body_text = email_record.body_text or ""
+        urls = extract_urls(body_text)
 
         url_results = []
 
-        for url in urls[:5]:  # 과도한 호출 방지
+        for url in urls[:5]:
             try:
                 vt_res = scan_url(url)
                 url_results.append({
@@ -403,29 +461,71 @@ async def analyze_email(
             except Exception as e:
                 url_results.append({
                     "url": url,
+                    "vt_result": None,
                     "error": str(e)
                 })
 
         # ==================================================
-        # 3️⃣ LLM 정밀 분석
+        # 3️⃣ 첨부파일 VT 분석 (Background Task로 실행)
+        # ==================================================
+        attachments_info = []
+
+        for att in getattr(email_record, "attachments", []):
+            att_bytes = att.get("content", b"")
+            att_hash  = att.get("sha256") or calculate_sha256(att_bytes)
+            att_name  = att.get("filename", "unknown")
+
+            attachments_info.append({
+                "filename": att_name,
+                "sha256": att_hash,
+            })
+
+            # ✅ vt_tasks.py의 실제 process_file_analysis 연결
+            if att_hash not in ANALYSIS_STORE:
+                ANALYSIS_STORE[att_hash] = {"status": "pending"}
+                background_tasks.add_task(
+                    process_file_analysis,
+                    att_hash,
+                    att_bytes
+                )
+
+        # ==================================================
+        # 4️⃣ LLM 정밀 분석
         # ==================================================
         llm_result = classify_with_llm(email_record)
 
         # ==================================================
-        # 종합 판단 로직
+        # 종합 위험도 판정
         # ==================================================
-        overall_label = "ham"
+        risk_level = "low"
 
         if heuristic_result.score >= 70:
-            overall_label = "high_risk"
+            risk_level = "high"
         elif heuristic_result.score >= 40:
-            overall_label = "spam"
+            risk_level = "medium"
 
-        if llm_result["label"] in ["phishing", "malicious"]:
-            overall_label = llm_result["label"]
+        if llm_result.get("label") in ["phishing", "malicious"]:
+            risk_level = "high"
+        elif llm_result.get("label") == "spam" and risk_level == "low":
+            risk_level = "medium"
+
+        overall_label = "ham"
+        if risk_level == "high":
+            overall_label = llm_result.get("label", "high_risk")
+        elif risk_level == "medium":
+            overall_label = "spam"
 
         return {
             "overall_label": overall_label,
+
+            # ✅ 프론트엔드 renderAI()가 참조하는 키로 통일
+            "ai_body_analysis": {
+                "risk_level": risk_level,
+                "label": llm_result.get("label", "unknown"),
+                "confidence": llm_result.get("confidence", 0),
+                "summary": f"[{llm_result.get('label','unknown').upper()}] 휴리스틱 점수: {heuristic_result.score}/100",
+                "rationale": llm_result.get("rationale", ""),
+            },
 
             "heuristic_analysis": {
                 "score": heuristic_result.score,
@@ -435,15 +535,7 @@ async def analyze_email(
 
             "url_analysis": url_results,
 
-            "llm_analysis": llm_result,
-
-            "attachments_vt": [
-                {
-                    "filename": att["filename"],
-                    "sha256": calculate_sha256(att["content"])
-                }
-                for att in getattr(email_record, "attachments", [])
-            ]
+            "attachments_vt": attachments_info,
         }
 
     except Exception as e:
@@ -451,27 +543,20 @@ async def analyze_email(
 
     finally:
         try:
-            if "tmp_path" in locals() and os.path.exists(tmp_path):
+            if tmp_path and os.path.exists(tmp_path):
                 os.remove(tmp_path)
         except Exception:
             pass
 
 
 # ==========================================================
-# 🔷 파일 VT 결과 조회 (2단계 버튼용)
+# 🔷 첨부파일 VT 결과 조회
 # ==========================================================
+
 @app.get("/vt-result/{file_hash}")
 def get_vt_result(file_hash: str):
+    """
+    ✅ vt_tasks.ANALYSIS_STORE를 직접 참조하므로
+       background_tasks 완료 후 실제 결과 반환됨
+    """
     return ANALYSIS_STORE.get(file_hash, {"status": "not_found"})
-
-
-@app.post("/start-vt/{file_hash}")
-def start_vt_analysis(file_hash: str):
-    if file_hash not in ANALYSIS_STORE:
-        ANALYSIS_STORE[file_hash] = {"status": "pending"}
-    ANALYSIS_STORE[file_hash] = {
-        "status": "completed",
-        "malicious": 0,
-        "suspicious": 0
-    }
-    return {"status": "started"}
