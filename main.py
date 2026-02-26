@@ -168,10 +168,11 @@ pre{
 <div class="card">
 <h3>📂 이메일 업로드</h3>
 
-<div id="drop-area" class="upload-box">
-드래그 앤 드롭 또는 클릭하여 업로드
 <input type="file" id="fileElem" accept=".eml,.msg" style="display:none">
-</div>
+<label for="fileElem" id="drop-area" class="upload-box">
+    📁 드래그 앤 드롭 또는 클릭하여 업로드<br>
+    <small style="color:var(--muted)">.eml / .msg 파일 지원</small>
+</label>
 
 <div id="fileStatus" class="file-status">
 파일 미선택
@@ -210,13 +211,7 @@ const dropArea = document.getElementById("drop-area");
 const fileElem = document.getElementById("fileElem");
 const fileStatus = document.getElementById("fileStatus");
 
-// 클릭 업로드: input 직접 클릭, 버블링 방지
-dropArea.addEventListener("click", (e) => {
-    if(e.target === fileElem) return;
-    fileElem.click();
-});
-
-// 파일 선택 완료
+// 파일 선택 완료 (label for="fileElem" 이 클릭을 자동 처리)
 fileElem.addEventListener("change", e => {
     const f = e.target.files[0];
     if(f) setFile(f);
