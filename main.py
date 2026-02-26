@@ -92,6 +92,7 @@ body{
     border-radius:10px;
     cursor:pointer;
     transition:0.3s;
+    position:relative;
 }
 
 .upload-box.dragover{
@@ -171,8 +172,9 @@ pre{
 <div id="drop-area" class="upload-box">
     📁 드래그 앤 드롭 또는 클릭하여 업로드<br>
     <small style="color:var(--muted)">.eml / .msg 파일 지원</small>
+    <input type="file" id="fileElem" accept=".eml,.msg"
+           style="position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:pointer;">
 </div>
-<input type="file" id="fileElem" accept=".eml,.msg" style="display:none">
 
 <div id="fileStatus" class="file-status">
 파일 미선택
@@ -211,23 +213,24 @@ const dropArea = document.getElementById("drop-area");
 const fileElem = document.getElementById("fileElem");
 const fileStatus = document.getElementById("fileStatus");
 
-// 클릭 → 파일 탐색기 열기
-dropArea.addEventListener("click", () => fileElem.click());
-
-// 클릭으로 파일 선택 완료
+// 클릭으로 파일 선택
 fileElem.addEventListener("change", e => {
     const f = e.target.files[0];
     if(f) setFile(f);
 });
 
-// 드래그 하이라이트 (input이 없으므로 dropArea가 직접 이벤트 수신)
-dropArea.addEventListener("dragenter", e => { e.preventDefault(); dropArea.classList.add("dragover"); });
-dropArea.addEventListener("dragover",  e => { e.preventDefault(); dropArea.classList.add("dragover"); });
-dropArea.addEventListener("dragleave", e => { dropArea.classList.remove("dragover"); });
+// ✅ dropArea 클릭 시 파일 선택 창 열기
+dropArea.addEventListener("click", () => fileElem.click());
+
+// 드래그 하이라이트
+dropArea.addEventListener("dragenter", e => { e.preventDefault(); e.stopPropagation(); dropArea.classList.add("dragover"); });
+dropArea.addEventListener("dragover",  e => { e.preventDefault(); e.stopPropagation(); dropArea.classList.add("dragover"); });
+dropArea.addEventListener("dragleave", e => { e.preventDefault(); e.stopPropagation(); dropArea.classList.remove("dragover"); });
 
 // 드롭 처리
 dropArea.addEventListener("drop", e => {
     e.preventDefault();
+    e.stopPropagation();
     dropArea.classList.remove("dragover");
     const files = e.dataTransfer.files;
     if(files && files.length > 0) setFile(files[0]);
