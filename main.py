@@ -26,12 +26,11 @@ def process_file_analysis(file_hash: str, file_bytes: bytes):
     실제 환경에서는 여기서 VirusTotal API 호출
     """
     try:
-        # TODO: VT 실제 연동 부분
+        # 샘플 응답
         ANALYSIS_STORE[file_hash] = {
             "status": "completed",
             "malicious": 0,
-            "suspicious": 0,
-            "message": "VT 분석 완료 (샘플 응답)"
+            "suspicious": 0
         }
     except Exception as e:
         ANALYSIS_STORE[file_hash] = {
@@ -63,7 +62,6 @@ body {
     background: #1e293b;
     padding: 30px;
     border-radius: 12px;
-    box-shadow: 0 10px 40px rgba(0,0,0,0.6);
     max-width: 1000px;
     margin: auto;
 }
@@ -71,95 +69,47 @@ body {
     border: 2px dashed #3b82f6;
     padding: 30px;
     border-radius: 10px;
+    cursor: pointer;
+}
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 15px;
+}
+th, td {
+    border: 1px solid #334155;
+    padding: 8px;
+}
+th {
     background: #0f172a;
-    cursor: pointer;
 }
-#drop-area.dragover {
-    background: #1d4ed8;
-}
-button {
-    padding: 10px 20px;
-    border: none;
-    background: #3b82f6;
-    color: white;
-    border-radius: 6px;
-    cursor: pointer;
-    margin-top: 10px;
-}
-button:hover { background:#2563eb; }
-textarea {
-    width:100%;
-    height:280px;
-    padding:10px;
-    font-size:13px;
-    background:#0f172a;
-    color:#22c55e;
-    border:1px solid #334155;
-}
-pre {
-    text-align:left;
-    background:#111827;
-    color:#cbd5e1;
-    padding:10px;
-    font-size:12px;
-    border:1px solid #334155;
-    max-height:300px;
-    overflow-y:auto;
-}
-.section-title {
-    margin-top:25px;
-    color:#38bdf8;
-}
-.badge {
-    padding:4px 8px;
-    border-radius:6px;
-    font-size:12px;
-}
-.badge-danger { background:#dc2626; }
-.badge-safe { background:#16a34a; }
+.bad { color:#dc2626; font-weight:bold; }
+.good { color:#16a34a; font-weight:bold; }
 </style>
 </head>
 <body>
 
 <div class="container">
 <h2>🛡 AI Email Threat Intelligence Platform</h2>
-<p>휴리스틱 + AI 정밀 분석 + VirusTotal 파일 평판 분석</p>
 
 <div id="drop-area">
-📂 드래그 앤 드롭 또는 클릭하여 파일 선택
+📂 클릭하여 이메일 파일 선택
 <input type="file" id="fileElem" accept=".eml,.msg" style="display:none">
-</div>
-
-<div id="file-info" style="margin-top:10px; display:none;">
-📄 <span id="file-name"></span>
 </div>
 
 <button onclick="uploadFile()">🔍 분석 시작</button>
 
-<h3 class="section-title">📊 분석 요약</h3>
-<div id="summary-box" style="display:none;">
-<textarea id="summaryText" readonly></textarea>
-<button onclick="copySummary()" style="background:#16a34a;">📋 결과 복사</button>
-</div>
+<h3>📊 AI 분석 요약</h3>
+<div id="aiSummary"></div>
 
-<h3 class="section-title">📎 첨부파일 VT 분석 상태</h3>
-<pre id="vtStatus"></pre>
-
-<h3 class="section-title">🧾 Raw JSON</h3>
-<pre id="rawResult"></pre>
+<h3>📎 첨부파일 VT 분석</h3>
+<div id="vtTable"></div>
 
 </div>
 
 <script>
 const dropArea = document.getElementById('drop-area');
 const fileElem = document.getElementById('fileElem');
-const fileInfo = document.getElementById('file-info');
-const fileName = document.getElementById('file-name');
-const rawResult = document.getElementById('rawResult');
-const summaryBox = document.getElementById('summary-box');
-const summaryText = document.getElementById('summaryText');
-const vtStatus = document.getElementById('vtStatus');
-
 let selectedFile = null;
 let vtHashes = [];
 
@@ -167,30 +117,7 @@ dropArea.addEventListener('click', () => fileElem.click());
 
 fileElem.addEventListener('change', (e) => {
     selectedFile = e.target.files[0];
-    showFileInfo();
 });
-
-['dragenter','dragover','dragleave','drop'].forEach(eventName => {
-    dropArea.addEventListener(eventName, (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-    }, false);
-});
-
-dropArea.addEventListener('dragover', () => dropArea.classList.add('dragover'));
-dropArea.addEventListener('dragleave', () => dropArea.classList.remove('dragover'));
-
-dropArea.addEventListener('drop', (e) => {
-    dropArea.classList.remove('dragover');
-    selectedFile = e.dataTransfer.files[0];
-    showFileInfo();
-});
-
-function showFileInfo() {
-    if (!selectedFile) return;
-    fileName.textContent = selectedFile.name;
-    fileInfo.style.display = "block";
-}
 
 async function uploadFile() {
     if (!selectedFile) {
@@ -201,9 +128,8 @@ async function uploadFile() {
     const formData = new FormData();
     formData.append("file", selectedFile);
 
-    rawResult.textContent = "⏳ 분석 중...";
-    vtStatus.textContent = "";
-    summaryBox.style.display = "none";
+    document.getElementById("aiSummary").innerHTML = "분석 중...";
+    document.getElementById("vtTable").innerHTML = "";
 
     const response = await fetch("/analyze", {
         method: "POST",
@@ -211,62 +137,76 @@ async function uploadFile() {
     });
 
     const data = await response.json();
-    rawResult.textContent = JSON.stringify(data, null, 2);
 
     if (data.error) {
-        summaryText.value = "❌ 오류: " + data.error;
-        summaryBox.style.display = "block";
+        document.getElementById("aiSummary").innerHTML =
+            "<span class='bad'>오류: " + data.error + "</span>";
         return;
     }
 
-    // 요약 생성
-    let output = "";
-
-    if (data.ai_body_analysis) {
-        output += "[🤖 AI 본문 분석]\\n";
-        output += JSON.stringify(data.ai_body_analysis, null, 2) + "\\n\\n";
-    }
-
-    if (data.attachments_vt && Array.isArray(data.attachments_vt)) {
-        output += "[📎 첨부파일 VT 분석 시작]\\n";
-        data.attachments_vt.forEach(f => {
-            output += f.filename + " → " + f.sha256 + "\\n";
-        });
-
-        vtHashes = data.attachments_vt.map(f => f.sha256);
-        pollVT();
-    } else {
-        output += "첨부파일 없음\\n";
-    }
-
-    summaryText.value = output;
-    summaryBox.style.display = "block";
+    renderAISummary(data.ai_body_analysis);
+    renderVTTable(data.attachments_vt || []);
 }
 
-async function pollVT() {
-    vtStatus.textContent = "VT 분석 진행 중...";
+function renderAISummary(ai) {
+    if (!ai) {
+        document.getElementById("aiSummary").innerHTML = "AI 분석 결과 없음";
+        return;
+    }
 
-    for (let hash of vtHashes) {
-        const res = await fetch("/vt-result/" + hash);
+    let risk = ai.risk_level || "unknown";
+    let cls = risk === "high" ? "bad" : "good";
+
+    let html = `
+        <p>위험도: <span class="${cls}">${risk}</span></p>
+        <p>요약: ${ai.summary || "-"}</p>
+    `;
+
+    document.getElementById("aiSummary").innerHTML = html;
+}
+
+async function renderVTTable(files) {
+    if (files.length === 0) {
+        document.getElementById("vtTable").innerHTML = "첨부파일 없음";
+        return;
+    }
+
+    let html = `
+    <table>
+        <tr>
+            <th>파일명</th>
+            <th>SHA256</th>
+            <th>상태</th>
+            <th>Malicious</th>
+            <th>Suspicious</th>
+        </tr>
+    `;
+
+    for (let f of files) {
+        const res = await fetch("/vt-result/" + f.sha256);
         const result = await res.json();
-        vtStatus.textContent += "\\n" + hash + " → " + JSON.stringify(result);
-    }
-}
 
-function copySummary() {
-    summaryText.select();
-    document.execCommand('copy');
-    alert("복사되었습니다.");
+        html += `
+        <tr>
+            <td>${f.filename}</td>
+            <td>${f.sha256.substring(0,12)}...</td>
+            <td>${result.status}</td>
+            <td>${result.malicious ?? "-"}</td>
+            <td>${result.suspicious ?? "-"}</td>
+        </tr>
+        `;
+    }
+
+    html += "</table>";
+    document.getElementById("vtTable").innerHTML = html;
 }
 </script>
 
 </body>
 </html>
 """
-
-
 # ==========================================================
-# 🔷 2️⃣ 이메일 분석 API (AI + VT 통합)
+# 🔷 2️⃣ 이메일 분석 API
 # ==========================================================
 @app.post("/analyze")
 async def analyze_email(
