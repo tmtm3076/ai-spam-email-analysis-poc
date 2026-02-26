@@ -22,11 +22,7 @@ def calculate_sha256(file_bytes: bytes) -> str:
 
 
 def process_file_analysis(file_hash: str, file_bytes: bytes):
-    """
-    실제 환경에서는 여기서 VirusTotal API 호출
-    """
     try:
-        # 샘플 응답
         ANALYSIS_STORE[file_hash] = {
             "status": "completed",
             "malicious": 0,
@@ -49,9 +45,9 @@ def home():
 <html>
 <head>
 <meta charset="UTF-8">
-<title>Email Threat Intelligence Console</title>
-<style>
+<title>COSMAX Email Threat Intelligence Console</title>
 
+<style>
 :root{
     --bg:#0b1220;
     --card:#111827;
@@ -66,7 +62,7 @@ def home():
 
 body{
     margin:0;
-    font-family: 'Segoe UI', Arial;
+    font-family:'Segoe UI',Arial;
     background:var(--bg);
     color:var(--text);
 }
@@ -77,7 +73,6 @@ body{
     border-bottom:1px solid var(--border);
     font-size:20px;
     font-weight:600;
-    letter-spacing:1px;
 }
 
 .wrapper{
@@ -94,12 +89,6 @@ body{
     margin-bottom:25px;
 }
 
-.card h3{
-    margin-top:0;
-    margin-bottom:15px;
-    font-weight:600;
-}
-
 .upload-box{
     border:2px dashed var(--primary);
     padding:40px;
@@ -109,8 +98,14 @@ body{
     transition:0.3s;
 }
 
-.upload-box:hover{
+.upload-box.dragover{
     background:#1e293b;
+}
+
+.file-status{
+    margin-top:15px;
+    font-size:14px;
+    color:var(--muted);
 }
 
 button{
@@ -123,9 +118,7 @@ button{
     font-weight:500;
 }
 
-button:hover{
-    opacity:0.9;
-}
+button:hover{ opacity:0.9; }
 
 .badge{
     padding:4px 10px;
@@ -159,9 +152,12 @@ tr:hover{
     background:#1f2937;
 }
 
-.small{
+pre{
+    background:#0f172a;
+    padding:15px;
+    border-radius:8px;
     font-size:12px;
-    color:var(--muted);
+    overflow:auto;
 }
 
 </style>
@@ -169,7 +165,7 @@ tr:hover{
 <body>
 
 <div class="header">
-🛡 Email Threat Intelligence Console
+🛡 COSMAX Email Threat Intelligence Console
 </div>
 
 <div class="wrapper">
@@ -177,9 +173,13 @@ tr:hover{
 <div class="card">
 <h3>📂 이메일 업로드</h3>
 
-<div class="upload-box" onclick="fileElem.click()">
-클릭하여 .eml 또는 .msg 파일 업로드
+<div id="drop-area" class="upload-box">
+드래그 앤 드롭 또는 클릭하여 업로드
 <input type="file" id="fileElem" accept=".eml,.msg" style="display:none">
+</div>
+
+<div id="fileStatus" class="file-status">
+파일 미선택
 </div>
 
 <br>
@@ -189,12 +189,17 @@ tr:hover{
 
 <div class="card">
 <h3>📊 AI 위협 분석 결과</h3>
-<div id="aiSummary" class="small">분석 대기중...</div>
+<div id="aiSummary">분석 대기중...</div>
 </div>
 
 <div class="card">
 <h3>📎 첨부파일 위협 평판 (VirusTotal)</h3>
-<div id="vtTable" class="small">첨부파일 없음</div>
+<div id="vtTable">첨부파일 없음</div>
+</div>
+
+<div class="card">
+<h3>🧾 Raw JSON (Debug)</h3>
+<pre id="rawJson">-</pre>
 </div>
 
 </div>
@@ -202,11 +207,46 @@ tr:hover{
 <script>
 
 let selectedFile = null;
-
+const dropArea = document.getElementById("drop-area");
 const fileElem = document.getElementById("fileElem");
+const fileStatus = document.getElementById("fileStatus");
+
+dropArea.addEventListener("click", () => fileElem.click());
+
 fileElem.addEventListener("change", e => {
     selectedFile = e.target.files[0];
+    updateFileStatus();
 });
+
+["dragenter","dragover"].forEach(evt=>{
+    dropArea.addEventListener(evt, e=>{
+        e.preventDefault();
+        dropArea.classList.add("dragover");
+    });
+});
+
+["dragleave","drop"].forEach(evt=>{
+    dropArea.addEventListener(evt, e=>{
+        e.preventDefault();
+        dropArea.classList.remove("dragover");
+    });
+});
+
+dropArea.addEventListener("drop", e=>{
+    selectedFile = e.dataTransfer.files[0];
+    updateFileStatus();
+});
+
+function updateFileStatus(){
+    if(!selectedFile){
+        fileStatus.innerHTML="파일 미선택";
+        return;
+    }
+
+    fileStatus.innerHTML=
+        "<span class='badge badge-safe'>업로드 완료</span> "
+        + selectedFile.name;
+}
 
 async function uploadFile(){
 
@@ -217,16 +257,20 @@ async function uploadFile(){
 
     document.getElementById("aiSummary").innerHTML="AI 분석 중...";
     document.getElementById("vtTable").innerHTML="분석 중...";
+    document.getElementById("rawJson").textContent="-";
 
     const formData = new FormData();
     formData.append("file", selectedFile);
 
-    const res = await fetch("/analyze", {
+    const res = await fetch("/analyze",{
         method:"POST",
         body:formData
     });
 
     const data = await res.json();
+
+    document.getElementById("rawJson").textContent =
+        JSON.stringify(data,null,2);
 
     if(data.error){
         document.getElementById("aiSummary").innerHTML =
@@ -248,24 +292,22 @@ function renderAI(ai){
     let risk = ai.risk_level || "unknown";
     let badgeClass = "badge-safe";
 
-    if(risk === "high") badgeClass = "badge-danger";
-    else if(risk === "medium") badgeClass = "badge-warning";
+    if(risk === "high") badgeClass="badge-danger";
+    else if(risk === "medium") badgeClass="badge-warning";
 
     document.getElementById("aiSummary").innerHTML = `
-        <div>
-            위험도:
-            <span class="badge ${badgeClass}">
-                ${risk.toUpperCase()}
-            </span>
-        </div>
-        <br>
-        <div>${ai.summary || "-"}</div>
+        위험도:
+        <span class="badge ${badgeClass}">
+            ${risk.toUpperCase()}
+        </span>
+        <br><br>
+        ${ai.summary || "-"}
     `;
 }
 
 async function renderVT(files){
 
-    if(files.length === 0){
+    if(files.length===0){
         document.getElementById("vtTable").innerHTML="첨부파일 없음";
         return;
     }
@@ -274,7 +316,7 @@ async function renderVT(files){
     <table>
         <tr>
             <th>파일명</th>
-            <th>해시</th>
+            <th>SHA256</th>
             <th>상태</th>
             <th>Malicious</th>
             <th>Suspicious</th>
@@ -286,30 +328,28 @@ async function renderVT(files){
         const res = await fetch("/vt-result/" + f.sha256);
         const result = await res.json();
 
-        let statusBadge = "<span class='badge badge-warning'>PENDING</span>";
+        let badge="<span class='badge badge-warning'>PENDING</span>";
 
-        if(result.status === "completed"){
-            statusBadge = "<span class='badge badge-safe'>COMPLETED</span>";
-        }
+        if(result.status==="completed")
+            badge="<span class='badge badge-safe'>COMPLETED</span>";
 
-        if(result.status === "error"){
-            statusBadge = "<span class='badge badge-danger'>ERROR</span>";
-        }
+        if(result.status==="error")
+            badge="<span class='badge badge-danger'>ERROR</span>";
 
-        html += `
+        html+=`
         <tr>
             <td>${f.filename}</td>
-            <td class="small">${f.sha256.substring(0,16)}...</td>
-            <td>${statusBadge}</td>
+            <td>${f.sha256.substring(0,16)}...</td>
+            <td>${badge}</td>
             <td>${result.malicious ?? "-"}</td>
             <td>${result.suspicious ?? "-"}</td>
         </tr>
         `;
     }
 
-    html += "</table>";
+    html+="</table>";
 
-    document.getElementById("vtTable").innerHTML = html;
+    document.getElementById("vtTable").innerHTML=html;
 }
 
 </script>
