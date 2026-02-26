@@ -8,7 +8,7 @@ from email_parser import parse_email_file
 from heuristics import score_email
 from llm import classify_with_llm
 from url_extractor import extract_urls
-from virustotal_api import submit_url, get_result, extract_stats
+from virustotal_api import submit_url, get_result, extract_stats, analyze_file_with_vt, extract_file_stats
 
 app = FastAPI()
 
@@ -324,10 +324,27 @@ async def analyze_email(
         # ✅ attachments: Pydantic Attachment 모델 → .filename .sha256 속성 접근
         attachments_vt = []
         for att in email_record.attachments:
-            attachments_vt.append({
-                "filename": att.filename,
-                "sha256":   att.sha256,
-            })
+            try:
+                file_bytes = att.content  # Attachment 모델의 실제 필드명 확인 필요
+                vt_report = analyze_file_with_vt(file_bytes, att.filename)
+                stats = extract_file_stats(vt_report)
+                ANALYSIS_STORE[att.sha256] = {
+                    "status":     "completed",
+                    "malicious":  stats["malicious"],
+                    "suspicious": stats["suspicious"],
+                    "harmless":   stats["harmless"],
+                    "undetected": stats["undetected"],
+                }
+                attachments_vt.append({
+                    "filename": att.filename,
+                    "sha256":   att.sha256,
+                })
+            except Exception as e:
+                ANALYSIS_STORE[att.sha256] = {"status": "error", "message": str(e)}
+                attachments_vt.append({
+                    "filename": att.filename,
+                    "sha256":   att.sha256,
+                })
 
         return {
             "overall_label": overall_label,
