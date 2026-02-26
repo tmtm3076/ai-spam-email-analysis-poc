@@ -290,24 +290,27 @@ function renderAI(ai) {
     if (risk === "high")   badgeClass = "badge-danger";
     else if (risk === "medium") badgeClass = "badge-warning";
 
-    const confidence = (ai.confidence !== undefined)
-        ? `<br><small style="color:var(--muted)">신뢰도: ${(ai.confidence * 100).toFixed(0)}%</small>`
+    var confidence = (ai.confidence !== undefined)
+        ? "<br><small style=\"color:var(--muted)\">신뢰도: " + (ai.confidence * 100).toFixed(0) + "%</small>"
         : "";
 
-    document.getElementById("aiSummary").innerHTML = `
-        위험도: <span class="badge ${badgeClass}">${risk.toUpperCase()}</span>
-        ${confidence}
-        <br><br>
-        ${ai.summary || "-"}
-        ${ai.rationale ? "<br><br><b>분석 근거:</b><br>" + formatRationale(ai.rationale) : ""}
-    `;
+    document.getElementById("aiSummary").innerHTML =
+        "위험도: <span class=\"badge " + badgeClass + "\">" + risk.toUpperCase() + "</span>"
+        + confidence
+        + "<br><br>"
+        + (ai.summary || "-")
+        + (ai.rationale ? "<br><br><b>분석 근거:</b><br>" + formatRationale(ai.rationale) : "");
 }
 
 function formatRationale(text) {
     if (!text) return "";
-    var lines = text.split("\n");
-    var joined = lines.join("<br>");
-    return "<span style='line-height:2.0'>" + joined + "</span>";
+    var result = "";
+    var parts = text.split(String.fromCharCode(10));
+    for (var i = 0; i < parts.length; i++) {
+        if (i > 0) result += "<br>";
+        result += parts[i];
+    }
+    return "<span style='line-height:2.0'>" + result + "</span>";
 }
 
 function renderURLs(urls) {
