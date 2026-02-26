@@ -9,28 +9,18 @@ from email_parser import parse_email_file
 
 app = FastAPI()
 
-# ==========================================================
-# 🔷 VT 분석 상태 저장소 (메모리)
-# ==========================================================
 ANALYSIS_STORE = {}
 
 
-# ==========================================================
-# 🔷 SHA256 계산
-# ==========================================================
 def calculate_sha256(file_bytes: bytes) -> str:
     sha256 = hashlib.sha256()
     sha256.update(file_bytes)
     return sha256.hexdigest()
 
 
-# ==========================================================
-# 🔷 실제 VT 분석 처리 (백그라운드)
-# ==========================================================
 def process_file_analysis(file_hash: str, file_bytes: bytes):
     try:
-        # TODO: 여기에 실제 VT API 호출 코드 넣으면 됨
-        # 지금은 테스트용 성공 처리
+        # TODO: 실제 VT API 연동 부분
         ANALYSIS_STORE[file_hash] = {
             "status": "completed",
             "result": "VT 분석 완료 (샘플 응답)"
@@ -43,57 +33,132 @@ def process_file_analysis(file_hash: str, file_bytes: bytes):
 
 
 # ==========================================================
-# 🔷 GUI 화면
+# 🔷 고급 GUI
 # ==========================================================
 @app.get("/", response_class=HTMLResponse)
 def home():
     return """
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>AI Email Security Analyzer</title>
-        <meta charset="UTF-8">
-    </head>
-    <body>
-        <h2>📧 AI Email Security Analyzer</h2>
-        <p>.eml 또는 .msg 파일 업로드</p>
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>AI Email Security Analyzer</title>
+<style>
+body {
+    font-family: Arial, sans-serif;
+    background-color: #f4f6f9;
+    padding: 40px;
+}
+.container {
+    background: white;
+    padding: 30px;
+    border-radius: 10px;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+}
+button {
+    background-color: #007bff;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 6px;
+    cursor: pointer;
+}
+button:hover {
+    background-color: #0056b3;
+}
+.result-box {
+    margin-top: 20px;
+    background: #111;
+    color: #0f0;
+    padding: 15px;
+    border-radius: 6px;
+    white-space: pre-wrap;
+}
+.error {
+    color: red;
+    font-weight: bold;
+}
+.loading {
+    color: orange;
+}
+.copy-btn {
+    margin-top: 10px;
+    background: #28a745;
+}
+</style>
+</head>
+<body>
+<div class="container">
+<h2>📧 AI Email Security Analyzer</h2>
+<p>.eml 또는 .msg 파일 업로드</p>
 
-        <input type="file" id="fileElem" accept=".eml,.msg">
-        <button onclick="uploadFile()">분석하기</button>
+<input type="file" id="fileElem" accept=".eml,.msg">
+<button onclick="uploadFile()">분석하기</button>
 
-        <h3>결과</h3>
-        <pre id="result"></pre>
+<div id="status" class="loading"></div>
 
-        <script>
-            async function uploadFile() {
-                const fileInput = document.getElementById('fileElem');
-                const file = fileInput.files[0];
+<div class="result-box" id="result"></div>
+<button class="copy-btn" onclick="copyResult()">결과 복사</button>
+</div>
 
-                if (!file) {
-                    alert("파일을 선택하세요.");
-                    return;
-                }
+<script>
+async function uploadFile() {
+    const fileInput = document.getElementById('fileElem');
+    const file = fileInput.files[0];
 
-                const formData = new FormData();
-                formData.append("file", file);
+    if (!file) {
+        alert("파일을 선택하세요.");
+        return;
+    }
 
-                const res = await fetch("/analyze", {
-                    method: "POST",
-                    body: formData
-                });
+    document.getElementById("status").innerText = "분석 중...";
+    document.getElementById("result").innerText = "";
 
-                const data = await res.json();
-                document.getElementById("result").textContent =
-                    JSON.stringify(data, null, 2);
-            }
-        </script>
-    </body>
-    </html>
-    """
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+        const res = await fetch("/analyze", {
+            method: "POST",
+            body: formData
+        });
+
+        const data = await res.json();
+
+        if (data.error) {
+            document.getElementById("status").innerHTML =
+                "<span class='error'>오류 발생</span>";
+            document.getElementById("result").innerText =
+                JSON.stringify(data, null, 2);
+            return;
+        }
+
+        document.getElementById("status").innerText = "분석 완료";
+
+        let formatted = JSON.stringify(data, null, 2);
+
+        document.getElementById("result").innerText = formatted;
+
+    } catch (err) {
+        document.getElementById("status").innerHTML =
+            "<span class='error'>서버 오류</span>";
+        document.getElementById("result").innerText = err;
+    }
+}
+
+function copyResult() {
+    const text = document.getElementById("result").innerText;
+    navigator.clipboard.writeText(text);
+    alert("결과가 복사되었습니다.");
+}
+</script>
+</body>
+</html>
+"""
 
 
 # ==========================================================
-# 🔷 이메일 분석 API (통합 버전)
+# 🔷 분석 API
 # ==========================================================
 @app.post("/analyze")
 async def analyze_email(
@@ -109,7 +174,6 @@ async def analyze_email(
         )
 
     try:
-        # 1️⃣ 임시파일 저장
         with tempfile.NamedTemporaryFile(
             delete=False,
             suffix=os.path.splitext(filename)[1]
@@ -117,17 +181,14 @@ async def analyze_email(
             tmp.write(await file.read())
             tmp_path = tmp.name
 
-        # 2️⃣ 이메일 파싱
         email_record = parse_email_file(tmp_path)
 
-        # 3️⃣ 본문 AI 분석
         body_analysis = analyze_mail(email_record.body_text)
 
         attachments = getattr(email_record, "attachments", [])
 
         vt_results = []
 
-        # 4️⃣ 첨부파일 VT 비동기 분석
         for attachment in attachments:
             attach_filename = attachment["filename"]
             file_bytes = attachment["content"]
@@ -166,14 +227,6 @@ async def analyze_email(
             pass
 
 
-# ==========================================================
-# 🔷 VT 결과 조회 API
-# ==========================================================
 @app.get("/vt-result/{file_hash}")
 def get_vt_result(file_hash: str):
-    result = ANALYSIS_STORE.get(file_hash)
-
-    if not result:
-        return {"status": "not_found"}
-
-    return result
+    return ANALYSIS_STORE.get(file_hash, {"status": "not_found"})
