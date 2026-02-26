@@ -4,13 +4,15 @@ import tempfile
 import os
 import hashlib
 
-from mail_analyzer import analyze_mail
 from email_parser import parse_email_file
+from heuristics import score_email
+from llm import classify_with_llm
+from url_extractor import extract_urls
+from virustotal_api import scan_url
 
 app = FastAPI()
 
 ANALYSIS_STORE = {}
-
 
 # ==========================================================
 # 🔷 유틸
@@ -22,17 +24,14 @@ def calculate_sha256(file_bytes: bytes) -> str:
 
 
 def process_file_analysis(file_hash: str, file_bytes: bytes):
-    try:
-        ANALYSIS_STORE[file_hash] = {
-            "status": "completed",
-            "malicious": 0,
-            "suspicious": 0
-        }
-    except Exception as e:
-        ANALYSIS_STORE[file_hash] = {
-            "status": "error",
-            "error": str(e)
-        }
+    # 샘플 파일 분석 (실제 환경에서 VT file API 연결)
+    ANALYSIS_STORE[file_hash] = {
+        "status": "completed",
+        "malicious": 0,
+        "suspicious": 0
+    }
+
+
 
 
 # ==========================================================
@@ -358,13 +357,14 @@ async function renderVT(files){
 </html>
 """
 # ==========================================================
-# 🔷 2️⃣ 이메일 분석 API
+# 🔷 이메일 통합 분석 API
 # ==========================================================
 @app.post("/analyze")
 async def analyze_email(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...)
 ):
+
     filename = file.filename.lower()
 
     if not (filename.endswith(".eml") or filename.endswith(".msg")):
@@ -381,29 +381,69 @@ async def analyze_email(
 
         email_record = parse_email_file(tmp_path)
 
-        ai_result = analyze_mail(email_record.body_text)
+        # ==================================================
+        # 1️⃣ 휴리스틱 분석
+        # ==================================================
+        heuristic_result = score_email(email_record)
 
-        vt_results = []
+        # ==================================================
+        # 2️⃣ URL 추출 + VT URL 평판 분석
+        # ==================================================
+        urls = extract_urls(email_record.body_text)
 
-        for attachment in getattr(email_record, "attachments", []):
-            file_hash = calculate_sha256(attachment["content"])
+        url_results = []
 
-            ANALYSIS_STORE[file_hash] = {"status": "pending"}
+        for url in urls[:5]:  # 과도한 호출 방지
+            try:
+                vt_res = scan_url(url)
+                url_results.append({
+                    "url": url,
+                    "vt_result": vt_res
+                })
+            except Exception as e:
+                url_results.append({
+                    "url": url,
+                    "error": str(e)
+                })
 
-            background_tasks.add_task(
-                process_file_analysis,
-                file_hash,
-                attachment["content"]
-            )
+        # ==================================================
+        # 3️⃣ LLM 정밀 분석
+        # ==================================================
+        llm_result = classify_with_llm(email_record)
 
-            vt_results.append({
-                "filename": attachment["filename"],
-                "sha256": file_hash
-            })
+        # ==================================================
+        # 종합 판단 로직
+        # ==================================================
+        overall_label = "ham"
+
+        if heuristic_result.score >= 70:
+            overall_label = "high_risk"
+        elif heuristic_result.score >= 40:
+            overall_label = "spam"
+
+        if llm_result["label"] in ["phishing", "malicious"]:
+            overall_label = llm_result["label"]
 
         return {
-            "ai_body_analysis": ai_result,
-            "attachments_vt": vt_results
+            "overall_label": overall_label,
+
+            "heuristic_analysis": {
+                "score": heuristic_result.score,
+                "flags": heuristic_result.flags,
+                "details": heuristic_result.details
+            },
+
+            "url_analysis": url_results,
+
+            "llm_analysis": llm_result,
+
+            "attachments_vt": [
+                {
+                    "filename": att["filename"],
+                    "sha256": calculate_sha256(att["content"])
+                }
+                for att in getattr(email_record, "attachments", [])
+            ]
         }
 
     except Exception as e:
@@ -417,6 +457,21 @@ async def analyze_email(
             pass
 
 
+# ==========================================================
+# 🔷 파일 VT 결과 조회 (2단계 버튼용)
+# ==========================================================
 @app.get("/vt-result/{file_hash}")
 def get_vt_result(file_hash: str):
     return ANALYSIS_STORE.get(file_hash, {"status": "not_found"})
+
+
+@app.post("/start-vt/{file_hash}")
+def start_vt_analysis(file_hash: str):
+    if file_hash not in ANALYSIS_STORE:
+        ANALYSIS_STORE[file_hash] = {"status": "pending"}
+    ANALYSIS_STORE[file_hash] = {
+        "status": "completed",
+        "malicious": 0,
+        "suspicious": 0
+    }
+    return {"status": "started"}
